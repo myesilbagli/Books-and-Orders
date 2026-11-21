@@ -13,6 +13,7 @@ add_executable(orderbook_tests
   tests/order_test.cpp
   tests/book_test.cpp
   tests/match_test.cpp
+  tests/reduce_replace_test.cpp
   tests/itch_bytes_test.cpp
   tests/itch_messages_test.cpp
   tests/itch_reader_test.cpp

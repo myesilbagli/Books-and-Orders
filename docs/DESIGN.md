@@ -20,7 +20,8 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | ITCH 5.0: message splitter (`ItchReader`, zero-copy) | `cpp/include/orderbook/itch/reader.hpp` | done |
 | ITCH 5.0: memory-mapped file (`MappedFile`, RAII) | `cpp/include/orderbook/itch/mapped_file.hpp`, `cpp/src/itch/mapped_file.cpp` | done |
 | ITCH 5.0: `scan` (count types, check decoders) + `itch_stats` tool | `cpp/include/orderbook/itch/scan.hpp`, `cpp/src/itch/scan.cpp`, `cpp/tools/itch_stats.cpp` | done |
-| Real-day replay + validation | — | milestone 3 |
+| Book: `reduce` (ITCH E/C/X) and `replace` (ITCH U) | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
+| Real-day replay: one book per stock + validation | — | milestone 3, next |
 | Market-making simulator (queue-aware fills) | — | milestone 4 |
 | Quoting strategy, markouts, P&L attribution | — | milestone 5 |
 | Trend/range signal for the market maker | — | milestone 6 |
@@ -32,6 +33,7 @@ order events (tests now; ITCH from milestone 2)
         │
         ▼
 OrderBook::add / cancel          (replay: rest as told, no matching)
+OrderBook::reduce / replace      (replay: ITCH E/C/X shrink in place, U re-queues)
 OrderBook::submit → [Trade...]   (our own orders: match first, rest the remainder)
         │
         ├── bids_  std::map<Price, std::list<Order>, std::greater>   best = begin() = highest
@@ -40,6 +42,14 @@ OrderBook::submit → [Trade...]   (our own orders: match first, rest the remain
 ```
 
 The book holds only **displayed** orders. Nasdaq ITCH does not publish hidden, midpoint or the reserve part of iceberg orders; they show up only when they trade. Displayed orders keep priority over non-displayed ones at the same price, so queue position at a price is still correct, but hidden liquidity at a better price can take fills we would otherwise expect (the simulator in milestone 4 will be slightly optimistic for that reason).
+
+## Known limitations
+
+- **One venue.** ITCH is Nasdaq's own book. The same stocks also trade on NYSE Arca, Cboe, IEX, NYSE and off-exchange (dark pools, broker internalization), so Nasdaq's prints are only part of total volume. On the first test day QQQ showed about 655 K shares on Nasdaq by 09:44 ET, a fraction of its consolidated volume. Prices line up across venues (arbitrage keeps them together), so price charts are right; volume is not the whole market.
+- **Why that's acceptable for the simulator:** a resting quote sits in one venue's queue, and its queue position depends only on that venue's book. Simulating on Nasdaq's book is the right model for "when do I get filled".
+- **What it misses:** a move that starts on another venue can reach Nasdaq's book after it has already traded elsewhere (adverse selection we can't see coming), and real market makers quote on many venues at once (routing, inter-venue latency, Reg NMS order protection). Multi-venue simulation is out of scope.
+- **Hidden liquidity:** see Data flow above. Non-displayed orders only appear when they trade (`P` messages), so fills are slightly optimistic.
+- **Plan for the signal (milestone 6):** trend vs range labels and order-flow features come from **consolidated** data (all venues' trades and best prices), which is much smaller and cheaper than order-by-order data. The quotes themselves are still simulated on Nasdaq's book.
 
 ## Decisions
 
@@ -164,6 +174,13 @@ The book holds only **displayed** orders. Nasdaq ITCH does not publish hidden, m
 - **Counts are an array indexed by the type byte** (`count_by_type['A']`): 256 slots cover every byte value, so counting is a single add with no lookup, and unknown types are still counted.
 - **Timing uses `steady_clock`**, which never jumps backwards (the same reason as D4).
 - **First real-data check (30 Dec 2019, first 0.73 GB of the file, the part downloaded so far):** 22.7 M messages, **0 decode failures**, `Truncated` at the end as expected for a partial file. 8,906 stock directory (`R`) messages, one per listed stock. About 117 M messages/s, or 3.75 GB/s, **warm** (the file was just written, so it was in the page cache); a cold run will be slower.
+
+### D19. `reduce` keeps queue position; `replace` loses it
+
+- **`reduce(id, qty)`** (ITCH `E`, `C` executed; `X` partial cancel): changes the order's `remaining` in place through its index ticket, so it stays where it is in the queue. At 0 it is removed through `cancel`, which already cleans up empty levels. Unknown id, 0 shares, or more than what's left: rejected, book unchanged (`Order::fill` already refuses an overfill, D5).
+- **`replace(old, new, qty, price)`** (ITCH `U`): cancel the old order, add the new one on the same side (U doesn't repeat it) at the back of its level, even at an unchanged price. That's Nasdaq's rule: a replace gives up time priority. Every check runs before anything changes, so a rejected replace leaves the old order in place.
+- **Why it matters for market making:** queue position is what decides who gets filled first at a price. Shrinking an order keeps its spot; changing its price (or size via U) sends it to the back. The simulator's fills depend on getting this exactly right.
+- **Alternative:** implement `reduce` as cancel + add of the smaller order. Simpler, but it would wrongly move the order to the back of the queue.
 
 ## Build
 

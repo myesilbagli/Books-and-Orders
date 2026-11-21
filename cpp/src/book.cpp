@@ -57,6 +57,45 @@ bool OrderBook::cancel(OrderId id) {
   return true;
 }
 
+bool OrderBook::reduce(OrderId id, Quantity qty) {
+  if (qty == 0) {
+    return false;
+  }
+  const auto found = index_.find(id);
+  if (found == index_.end()) {
+    return false;
+  }
+
+  // Change the order where it stands, through its ticket: no unlinking, so it keeps
+  // its place in the queue. fill() refuses an overfill and leaves the order unchanged.
+  Order& order = *found->second.position;
+  if (!order.fill(qty)) {
+    return false;
+  }
+  if (order.is_filled()) {
+    [[maybe_unused]] const bool removed = cancel(id);  // reuses the empty-level cleanup
+    assert(removed);                                   // can't fail: id was just found
+  }
+  return true;
+}
+
+bool OrderBook::replace(OrderId old_id, OrderId new_id, Quantity qty, Price price) {
+  // All checks first, so a rejected replace leaves the old order untouched.
+  const auto found = index_.find(old_id);
+  if (found == index_.end() || qty == 0 || index_.contains(new_id)) {
+    return false;
+  }
+  const Side side = found->second.side;  // ITCH U doesn't repeat the side
+
+  // cancel + add: the new order goes to the back of its level, so it loses time
+  // priority even at the same price. That's Nasdaq's rule, not a shortcut.
+  [[maybe_unused]] const bool cancelled = cancel(old_id);
+  [[maybe_unused]] const bool added =
+      add(Order{.id = new_id, .side = side, .price = price, .remaining = qty, .seq = 0});
+  assert(cancelled && added);  // can't fail: everything was checked above
+  return true;
+}
+
 SubmitResult OrderBook::submit(const Order& order) {
   SubmitResult result{.accepted = false, .trades = {}};
 

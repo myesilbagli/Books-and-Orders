@@ -42,6 +42,16 @@ class OrderBook {
   // false if the id is not in the book (never added, or already cancelled).
   [[nodiscard]] bool cancel(OrderId id);
 
+  // Take `qty` shares off a resting order and KEEP its place in the queue (ITCH E, C:
+  // executed; X: partial cancel). At 0 shares left the order is removed. false, and
+  // nothing changes, if the id is unknown, qty is 0, or qty is more than what's left.
+  [[nodiscard]] bool reduce(OrderId id, Quantity qty);
+
+  // Remove `old_id` and add `new_id` on the same side at a new price and size, at the
+  // BACK of the queue even if the price didn't change (ITCH U). false, and nothing
+  // changes, if old_id is unknown, new_id is already in the book, or qty is 0.
+  [[nodiscard]] bool replace(OrderId old_id, OrderId new_id, Quantity qty, Price price);
+
   // Empty (std::nullopt) when that side has no orders, never a fake price like 0.
   [[nodiscard]] std::optional<Price> best_bid() const;
   [[nodiscard]] std::optional<Price> best_ask() const;
