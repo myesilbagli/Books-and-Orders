@@ -23,7 +23,9 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Book: `reduce` (ITCH E/C/X) and `replace` (ITCH U) | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
 | Replay: one book per stock (by locate) + problem counters | `cpp/include/orderbook/replay.hpp`, `cpp/src/replay.cpp` | done |
 | Real-day replay run (`itch_replay`): checks + speed | `cpp/tools/itch_replay.cpp` | done on 04:00–10:15 ET; full day pending download |
-| Market-making simulator (queue-aware fills) | — | milestone 4 |
+| Simulator: virtual order queue position + fill rules | `cpp/include/orderbook/sim/queue.hpp`, `cpp/src/sim/queue.cpp` | done (4a) |
+| Simulator loop: strategy, latency, requoting, fill log | — | milestone 4b, next |
+| First simulation on real data, markouts | — | milestone 4c |
 | Quoting strategy, markouts, P&L attribution | — | milestone 5 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
@@ -219,6 +221,15 @@ On the first 1.6 GB of 30 Dec 2019 (04:00 to 10:15 ET), release build, warm page
 
 - **The book is the bottleneck, as expected (D16):** scanning and decoding alone ran at 117 M messages/s; updating the books brings it down about 30×. Every new order allocates a `std::list` node, an `unordered_map` entry and often a `std::map` level. This is the baseline for the optimization milestone.
 - **Still to do:** the full day, once the download finishes. Success means a clean `End` and the same zeros.
+
+### D24. Virtual orders: exact queue position from L3 data, fills when the aggressor passes us
+
+- **The order never enters the book.** The real market never saw it; we assume it wouldn't have changed anyone's behaviour (small size, no market impact). We only track where it *would* stand.
+- **Queue position from the arrival counter (D4):** a virtual order takes the book's next `seq` without using it up. Every order resting at that moment has a smaller seq (ahead of us); the next order to arrive gets that same seq and later ones larger (behind us). So the rule is `seq < ours` ahead, `seq >= ours` behind. (The first version used `>`; the tests caught the off-by-one.)
+- **Exact, not estimated:** with order-by-order data we know which cancels and executions are ahead of us. With price-level (L2) data a simulator has to guess whether a cancel came from in front of us or behind, which is the usual source of over-optimistic backtests.
+- **Fill rule, checked before the book applies each execution:** we are filled when the aggressor got past us, meaning it traded (a) an order on our side and price that is behind us, or (b) our side at a worse price (a seller below our bid, a buyer above our ask). Each execution fills at most its own size: the shares that went to the order behind us would have come to us instead.
+- **Not used for fills:** executions ahead of us (they just move us up), executions at a better price than ours, executions on the other side.
+- **Book additions for this:** `find(id)` (read an order before an execution changes it), `next_sequence()`, and `volume_ahead(side, price, seq)`, which stops at the first later order because a level is in arrival order.
 
 ## Build
 

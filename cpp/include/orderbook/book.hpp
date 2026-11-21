@@ -67,6 +67,16 @@ class OrderBook {
   // from "the book refused the change".
   [[nodiscard]] bool contains(OrderId id) const { return index_.contains(id); }
 
+  // The resting order with this id, or nullptr. Read-only: the simulator uses it to see
+  // an order's side, price and arrival seq before an execution changes it.
+  [[nodiscard]] const Order* find(OrderId id) const;
+
+  // The seq the next accepted order will get. Anything resting now has a smaller one.
+  [[nodiscard]] Sequence next_sequence() const { return next_seq_; }
+
+  // Shares at one price from orders that arrived before `seq` (ahead of it in the queue).
+  [[nodiscard]] std::uint64_t volume_ahead(Side side, Price price, Sequence seq) const;
+
   [[nodiscard]] std::size_t order_count() const { return index_.size(); }
   [[nodiscard]] std::size_t level_count(Side side) const {
     return side == Side::Buy ? bids_.size() : asks_.size();

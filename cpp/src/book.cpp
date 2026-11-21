@@ -192,6 +192,26 @@ std::vector<OrderId> OrderBook::queue_at(Side side, Price price) const {
   return ids;
 }
 
+const Order* OrderBook::find(OrderId id) const {
+  const auto found = index_.find(id);
+  return found == index_.end() ? nullptr : &*found->second.position;  // the order in its list
+}
+
+std::uint64_t OrderBook::volume_ahead(Side side, Price price, Sequence seq) const {
+  std::uint64_t total = 0;
+  if (const Level* level = find_level(side, price)) {
+    // A level is in arrival order, so everything ahead of `seq` is at the front:
+    // stop at the first order that came later.
+    for (const Order& o : *level) {
+      if (o.seq >= seq) {
+        break;
+      }
+      total += o.remaining;
+    }
+  }
+  return total;
+}
+
 std::uint64_t OrderBook::volume_at(Side side, Price price) const {
   std::uint64_t total = 0;
   if (const Level* level = find_level(side, price)) {
