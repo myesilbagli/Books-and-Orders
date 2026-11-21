@@ -8,3 +8,9 @@ notes/
 
 # Market data: large and licensed by Nasdaq, never committed
 data/
+
+# Secrets (API keys): local only, never committed
+.env
+
+# Python virtual environments
+.venv/

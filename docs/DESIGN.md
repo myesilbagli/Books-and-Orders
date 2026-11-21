@@ -18,7 +18,8 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | ITCH 5.0: big-endian byte readers | `cpp/include/orderbook/itch/bytes.hpp` | done |
 | ITCH 5.0: message decoder (`A F E C X D U P`) | `cpp/include/orderbook/itch/messages.hpp`, `cpp/src/itch/messages.cpp` | done |
 | ITCH 5.0: message splitter (`ItchReader`, zero-copy) | `cpp/include/orderbook/itch/reader.hpp` | done |
-| ITCH 5.0: memory-mapped file (`MappedFile`) + `itch_stats` message counter | — | next |
+| ITCH 5.0: memory-mapped file (`MappedFile`, RAII) | `cpp/include/orderbook/itch/mapped_file.hpp`, `cpp/src/itch/mapped_file.cpp` | done |
+| ITCH 5.0: `itch_stats` message counter on a real day | — | next |
 | Real-day replay + validation | — | milestone 3 |
 | Market-making simulator (queue-aware fills) | — | milestone 4 |
 | Quoting strategy, markouts, P&L attribution | — | milestone 5 |
@@ -146,6 +147,16 @@ The book holds only **displayed** orders. Nasdaq ITCH does not publish hidden, m
 - **Overflow-safe bounds check:** `len > left - 2` instead of `pos + 2 + len > size`.
 - **Market data stays out of git:** files live in `data/` (git-ignored). Nasdaq's sample days are free to download from `emi.nasdaq.com`, but large and not ours to republish.
 - **Live trading is different:** a real feed arrives over UDP multicast (MoldUDP64), often through kernel-bypass network cards, not from a file. `mmap` is the replay and research tool.
+
+### D17. `MappedFile` owns the mapping (RAII) and can't be copied
+
+- **RAII:** the constructor opens and maps the file; the destructor unmaps it. Cleanup runs on every way out of a scope (normal end, early `return`), so it can't be forgotten.
+- **Copies are deleted (`= delete`):** two objects owning one mapping would both unmap it (a double free). Deleting the copy constructor and copy assignment turns that bug into a compile error.
+- **Failure is reported like `std::ifstream`:** `is_open()` plus an `error()` message (from `strerror`). Alternatives: throwing from the constructor (idiomatic and fine off the hot path, but the codebase has no exceptions so far); a factory returning `std::optional<MappedFile>` (a failure can't be ignored, but it needs move semantics, deferred until needed).
+- **The descriptor is closed right after `mmap`:** the mapping keeps the file alive by itself, so the object only holds a pointer and a size.
+- **Edge cases:** an empty file is open with size 0 (the OS refuses to map 0 bytes); a folder is rejected (`S_ISREG`).
+- **Read-only and private (`PROT_READ`, `MAP_PRIVATE`), plus `madvise(MADV_SEQUENTIAL)`:** the OS reads ahead and may drop pages behind us. It's a hint; ignoring it changes speed, not results.
+- **POSIX only:** macOS and Linux. No Windows support planned.
 
 ## Build
 
