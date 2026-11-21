@@ -16,13 +16,13 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Order book: add, cancel, best bid/ask, queue per price | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
 | Matching: `submit` with price-time priority, `Trade` records | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
 | ITCH 5.0: big-endian byte readers | `cpp/include/orderbook/itch/bytes.hpp` | done |
-| ITCH 5.0: message decoder (`A F E C X D U P R`) | `cpp/include/orderbook/itch/messages.hpp`, `cpp/src/itch/messages.cpp` | done |
+| ITCH 5.0: message decoder (`A F E C X D U P R H`) | `cpp/include/orderbook/itch/messages.hpp`, `cpp/src/itch/messages.cpp` | done |
 | ITCH 5.0: message splitter (`ItchReader`, zero-copy) | `cpp/include/orderbook/itch/reader.hpp` | done |
 | ITCH 5.0: memory-mapped file (`MappedFile`, RAII) | `cpp/include/orderbook/itch/mapped_file.hpp`, `cpp/src/itch/mapped_file.cpp` | done |
 | ITCH 5.0: `scan` (count types, check decoders) + `itch_stats` tool | `cpp/include/orderbook/itch/scan.hpp`, `cpp/src/itch/scan.cpp`, `cpp/tools/itch_stats.cpp` | done |
 | Book: `reduce` (ITCH E/C/X) and `replace` (ITCH U) | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
 | Replay: one book per stock (by locate) + problem counters | `cpp/include/orderbook/replay.hpp`, `cpp/src/replay.cpp` | done |
-| Real-day replay run (`itch_replay`): checks + speed | — | milestone 3, next |
+| Real-day replay run (`itch_replay`): checks + speed | `cpp/tools/itch_replay.cpp` | done on 04:00–10:15 ET; full day pending download |
 | Market-making simulator (queue-aware fills) | — | milestone 4 |
 | Quoting strategy, markouts, P&L attribution | — | milestone 5 |
 | Trend/range signal for the market maker | — | milestone 6 |
@@ -197,6 +197,29 @@ The book holds only **displayed** orders. Nasdaq ITCH does not publish hidden, m
 - **Locked counts as crossed:** bid = ask on one venue's displayed book is impossible in continuous trading, because those two orders would trade. Expected exceptions are periods without matching (halts, before an IPO opens), which the real run will show.
 - **Only adds and replaces are checked for crosses:** removing shares can't make a book cross.
 
+### D22. Crosses are checked only while a stock is trading
+
+- **Finding:** the first replay of real data (30 Dec 2019, 04:00–10:15 ET, 55.4 M messages) showed 524 crossed or locked books. The first was PNRL at 08:00, and PNRL had been **halted** (`H` message, state `H`) since 03:09. Nasdaq accepts orders for a halted stock but matches nothing until it reopens, so its book can legitimately cross. 8 stocks started the day halted.
+- **Choice:** the replay keeps each stock's trading state from `H` messages (`T` trading, `H` halted, `P` paused, `Q` quotation only). A cross while not trading goes to `crossed_not_trading` (expected); a cross while trading goes to `crossed` (a bug). Before any `H` message a stock counts as trading, the strict default.
+- **Not just hiding a number:** the hypothesis was tested, not assumed. After the split, `crossed` is 0 and all 524 are in halted stocks.
+
+### D23. First replay of a real day: results
+
+On the first 1.6 GB of 30 Dec 2019 (04:00 to 10:15 ET), release build, warm page cache:
+
+| Check | Result |
+|---|---|
+| Messages | 55.4 M |
+| Decode failures / unknown orders / rejected | 0 / 0 / 0 |
+| Crossed while trading | 0 (524 while halted, see D22) |
+| AAPL book at 10:15 vs last AAPL trade from an independent Python parser | bid 285.47 / ask 285.50; last trade 285.49, inside the spread |
+| Resting orders at 10:15, all stocks | 1.73 M |
+| Speed | 3.5 M messages/s, about 285 ns per message |
+| Peak memory (RSS) | 2.0 GB, of which the mapped file accounts for about 1.6 GB |
+
+- **The book is the bottleneck, as expected (D16):** scanning and decoding alone ran at 117 M messages/s; updating the books brings it down about 30×. Every new order allocates a `std::list` node, an `unordered_map` entry and often a `std::map` level. This is the baseline for the optimization milestone.
+- **Still to do:** the full day, once the download finishes. Success means a clean `End` and the same zeros.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -210,4 +233,5 @@ ctest --preset debug
 # a real day (release build; the file lives in data/, which git ignores)
 cmake --preset release && cmake --build --preset release
 ./build/release/cpp/itch_stats data/itch/12302019.NASDAQ_ITCH50
+./build/release/cpp/itch_replay data/itch/12302019.NASDAQ_ITCH50 AAPL QQQ MSFT
 ```

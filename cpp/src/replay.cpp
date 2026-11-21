@@ -8,7 +8,7 @@ constexpr std::size_t kLocates = 65'536;  // every value a 2-byte stock locate c
 
 }  // namespace
 
-Replayer::Replayer() : books_(kLocates), symbols_(kLocates) {}
+Replayer::Replayer() : books_(kLocates), symbols_(kLocates), state_(kLocates, 'T') {}
 
 void Replayer::apply(const std::uint8_t* p, std::size_t len) {
   ++stats_.messages;
@@ -24,6 +24,14 @@ void Replayer::apply(const std::uint8_t* p, std::size_t len) {
     case 'R': {
       if (const auto m = itch::decode_stock_directory(p, len)) {
         symbols_[m->header.stock_locate] = m->stock;
+      } else {
+        ++stats_.decode_failures;
+      }
+      break;
+    }
+    case 'H': {
+      if (const auto m = itch::decode_trading_action(p, len)) {
+        state_[m->header.stock_locate] = m->state;
       } else {
         ++stats_.decode_failures;
       }
@@ -122,12 +130,26 @@ void Replayer::check_crossed(std::uint16_t locate, std::uint64_t timestamp_ns) {
   // >=, not >: a locked book (bid == ask) on one venue is just as impossible, since
   // those two orders would have traded with each other.
   if (bid && ask && *bid >= *ask) {
+    if (state_[locate] != 'T') {
+      ++stats_.crossed_not_trading;  // halted / paused / quoting only: nothing matches
+      return;
+    }
     if (stats_.crossed == 0) {
       stats_.first_cross_locate = locate;
       stats_.first_cross_ns = timestamp_ns;
     }
     ++stats_.crossed;
   }
+}
+
+std::string Replayer::symbol_of(std::uint16_t locate) const {
+  const itch::Symbol& s = symbols_[locate];
+  // Never-named locates are all zero bytes; real symbols are space-padded on the right.
+  std::size_t len = 0;
+  while (len < s.size() && s[len] != ' ' && s[len] != '\0') {
+    ++len;
+  }
+  return std::string(s.data(), len);
 }
 
 std::optional<std::uint16_t> Replayer::locate_of(const std::string& symbol) const {

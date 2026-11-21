@@ -38,6 +38,15 @@ struct StockDirectory {
   Symbol stock;
 };
 
+// 'H': a stock's trading state changed. Only in 'T' does Nasdaq match orders; while
+// halted, paused or quoting only, orders are accepted and the book can cross.
+struct TradingAction {
+  Header header;
+  Symbol stock;
+  char state;                  // 'T' trading, 'H' halted, 'P' paused, 'Q' quotation only
+  std::array<char, 4> reason;  // e.g. "T1  " news pending; spaces when none
+};
+
 // 'A' (anonymous) and 'F' (attributed): a new displayed order rests on the book.
 struct AddOrder {
   Header header;
@@ -108,6 +117,8 @@ struct NonCrossTrade {
 
 [[nodiscard]] std::optional<StockDirectory> decode_stock_directory(const std::uint8_t* p,
                                                                     std::size_t len);
+[[nodiscard]] std::optional<TradingAction> decode_trading_action(const std::uint8_t* p,
+                                                                  std::size_t len);
 [[nodiscard]] std::optional<AddOrder> decode_add_order(const std::uint8_t* p, std::size_t len);
 [[nodiscard]] std::optional<OrderExecuted> decode_order_executed(const std::uint8_t* p,
                                                                  std::size_t len);

@@ -33,3 +33,7 @@ gtest_discover_tests(orderbook_tests)
 add_executable(itch_stats tools/itch_stats.cpp)
 target_link_libraries(itch_stats PRIVATE orderbook)
 orderbook_warnings(itch_stats)
+
+add_executable(itch_replay tools/itch_replay.cpp)
+target_link_libraries(itch_replay PRIVATE orderbook)
+orderbook_warnings(itch_replay)

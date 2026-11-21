@@ -54,6 +54,7 @@ TEST(ItchMessagesTest, KnowsTheLengthOfEachType) {
   EXPECT_EQ(message_length('U'), 35u);
   EXPECT_EQ(message_length('P'), 44u);
   EXPECT_EQ(message_length('R'), 39u);
+  EXPECT_EQ(message_length('H'), 25u);
 }
 
 // 'S' (system event) is real ITCH, just not one we decode.
@@ -210,6 +211,26 @@ TEST(ItchMessagesTest, DecodesStockDirectory) {
   ASSERT_TRUE(m.has_value());
   EXPECT_EQ(m->header.stock_locate, 13u);
   EXPECT_EQ(m->stock, symbol("AAPL    "));
+}
+
+TEST(ItchMessagesTest, DecodesTradingAction) {
+  auto buf = make_message('H', 25);
+  put_text(buf, 11, "PNRL", 8);
+  buf[19] = 'H';
+  put_text(buf, 21, "T1", 4);
+
+  const auto m = decode_trading_action(buf.data(), buf.size());
+  ASSERT_TRUE(m.has_value());
+  EXPECT_EQ(m->stock, symbol("PNRL    "));
+  EXPECT_EQ(m->state, 'H');
+  EXPECT_EQ(m->reason, (std::array<char, 4>{'T', '1', ' ', ' '}));
+}
+
+// The spec lists four states; anything else means we're misreading the stream.
+TEST(ItchMessagesTest, RejectsUnknownTradingState) {
+  auto buf = make_message('H', 25);
+  buf[19] = 'Z';
+  EXPECT_FALSE(decode_trading_action(buf.data(), buf.size()).has_value());
 }
 
 // --- rejects: bad input gives nullopt, never a half-decoded message ---------------

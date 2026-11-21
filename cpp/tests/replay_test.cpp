@@ -83,6 +83,12 @@ Bytes replaced(std::uint16_t locate, OrderId old_ref, OrderId new_ref, Quantity 
   return b;
 }
 
+Bytes trading_action(std::uint16_t locate, char state) {
+  Bytes b = message('H', 25, locate);
+  b[19] = static_cast<std::uint8_t>(state);
+  return b;
+}
+
 // Not named apply: Bytes is a std::vector, so the compiler would also consider std::apply.
 void feed(Replayer& r, const Bytes& b) { r.apply(b.data(), b.size()); }
 
@@ -95,6 +101,11 @@ TEST(ReplayTest, StockDirectoryNamesALocate) {
   EXPECT_EQ(r.locate_of("AAPL"), 13);
   EXPECT_EQ(r.locate_of("QQQ"), 6556);
   EXPECT_FALSE(r.locate_of("MSFT").has_value());
+
+  // And back: locate -> symbol, padding trimmed; empty for a locate never named.
+  EXPECT_EQ(r.symbol_of(13), "AAPL");
+  EXPECT_EQ(r.symbol_of(6556), "QQQ");
+  EXPECT_EQ(r.symbol_of(14), "");
 }
 
 // Each message goes to its own stock's book, chosen by locate.
@@ -210,6 +221,41 @@ TEST(ReplayTest, LockedBookCountsAsCrossed) {
   feed(r, add(13, 1, 'B', 100, 10'000));
   feed(r, add(13, 2, 'S', 100, 10'000));
   EXPECT_EQ(r.stats().crossed, 1u);
+}
+
+// While halted, Nasdaq accepts orders but doesn't match them, so a crossed book is
+// real, not a bug. It's counted on its own so `crossed` stays a pure error signal.
+TEST(ReplayTest, CrossWhileHaltedIsCountedSeparately) {
+  Replayer r;
+  feed(r, trading_action(13, 'H'));
+  feed(r, add(13, 1, 'B', 100, 10'010));
+  feed(r, add(13, 2, 'S', 100, 10'000));
+  EXPECT_EQ(r.stats().crossed, 0u);
+  EXPECT_EQ(r.stats().crossed_not_trading, 1u);
+}
+
+// Paused (LULD) and quotation-only don't match either.
+TEST(ReplayTest, PausedAndQuotationOnlyAreNotTrading) {
+  Replayer r;
+  feed(r, trading_action(13, 'P'));
+  feed(r, add(13, 1, 'B', 100, 10'010));
+  feed(r, add(13, 2, 'S', 100, 10'000));
+  feed(r, trading_action(14, 'Q'));
+  feed(r, add(14, 3, 'B', 100, 10'010));
+  feed(r, add(14, 4, 'S', 100, 10'000));
+  EXPECT_EQ(r.stats().crossed, 0u);
+  EXPECT_EQ(r.stats().crossed_not_trading, 2u);
+}
+
+// Once trading resumes, a cross is an error again.
+TEST(ReplayTest, CrossAfterResumingIsAnError) {
+  Replayer r;
+  feed(r, trading_action(13, 'H'));
+  feed(r, trading_action(13, 'T'));
+  feed(r, add(13, 1, 'B', 100, 10'010));
+  feed(r, add(13, 2, 'S', 100, 10'000));
+  EXPECT_EQ(r.stats().crossed, 1u);
+  EXPECT_EQ(r.stats().crossed_not_trading, 0u);
 }
 
 TEST(ReplayTest, DecodeFailureIsCounted) {

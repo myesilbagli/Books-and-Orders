@@ -63,6 +63,7 @@ std::size_t message_length(char type) {
     case 'U': return 35;
     case 'P': return 44;
     case 'R': return 39;
+    case 'H': return 25;
     default: return 0;  // a type we don't decode
   }
 }
@@ -72,6 +73,20 @@ std::optional<StockDirectory> decode_stock_directory(const std::uint8_t* p, std:
     return std::nullopt;
   }
   return StockDirectory{.header = read_header(p), .stock = read_text<8>(p + 11)};
+}
+
+std::optional<TradingAction> decode_trading_action(const std::uint8_t* p, std::size_t len) {
+  if (!fits(p, len, 'H')) {
+    return std::nullopt;
+  }
+  const char state = static_cast<char>(p[19]);
+  if (state != 'T' && state != 'H' && state != 'P' && state != 'Q') {
+    return std::nullopt;
+  }
+  return TradingAction{.header = read_header(p),
+                       .stock = read_text<8>(p + 11),
+                       .state = state,
+                       .reason = read_text<4>(p + 21)};  // byte 20 is reserved
 }
 
 std::optional<AddOrder> decode_add_order(const std::uint8_t* p, std::size_t len) {
