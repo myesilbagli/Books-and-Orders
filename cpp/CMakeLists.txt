@@ -10,6 +10,7 @@ add_executable(orderbook_tests
   tests/order_test.cpp
   tests/book_test.cpp
   tests/match_test.cpp
+  tests/itch_bytes_test.cpp
 )
 target_link_libraries(orderbook_tests PRIVATE orderbook GTest::gtest_main)
 orderbook_warnings(orderbook_tests)

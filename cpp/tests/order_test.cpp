@@ -5,7 +5,7 @@
 namespace ob {
 namespace {
 
-// One resting buy: 300 shares at $100.25 (tick = $0.01), the 4th order of the day.
+// One resting buy: 300 shares at price 10025 (integer ticks), the 4th order of the day.
 Order make_buy(Sequence seq, Quantity qty = 300) {
   return Order{.id = 17, .side = Side::Buy, .price = 10025, .remaining = qty, .seq = seq};
 }

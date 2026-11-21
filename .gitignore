@@ -4,3 +4,4 @@ build/
 .idea/
 compile_commands.json
 CLAUDE.md
+notes/

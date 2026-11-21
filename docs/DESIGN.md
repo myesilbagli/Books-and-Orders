@@ -15,7 +15,9 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Core types (`Price`, `Quantity`, `OrderId`, `Sequence`, `Side`, `Order`) | `cpp/include/orderbook/order.hpp` | done |
 | Order book: add, cancel, best bid/ask, queue per price | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
 | Matching: `submit` with price-time priority, `Trade` records | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
-| ITCH 5.0 parser | — | milestone 2 |
+| ITCH 5.0: big-endian byte readers | `cpp/include/orderbook/itch/bytes.hpp` | done |
+| ITCH 5.0: message decoder (`A F E C X D U P`) | — | next |
+| ITCH 5.0: file reader | — | planned |
 | Real-day replay + validation | — | milestone 3 |
 | Market-making simulator (queue-aware fills) | — | milestone 4 |
 | Quoting strategy, markouts, P&L attribution | — | milestone 5 |
@@ -41,7 +43,7 @@ The book holds only **displayed** orders. Nasdaq ITCH does not publish hidden, m
 
 ### D1. Prices are signed 64-bit integer ticks
 
-- **Choice:** `using Price = std::int64_t`, measured in ticks (for US equities, 1 tick = $0.01, so `10025` = $100.25).
+- **Choice:** `using Price = std::int64_t`, measured in units of **$0.0001**, the same unit as ITCH 5.0 prices (4 implied decimals), so `1502778` = $150.2778 and ITCH prices are used as-is, with no conversion. (First set to $0.01; changed in milestone 2 because stocks under $1 trade in sub-penny increments, which cents can't represent.)
 - **Why:** floating point can't represent most decimal prices exactly (`0.1 + 0.2 != 0.3`), so equality and ordering of prices become unreliable, and a book is all about equality and ordering. Integer compares are exact and one CPU instruction.
 - **Alternatives:** `double` (inexact); a decimal class (exact but slower, extra code); 32-bit ticks (fits equities but risks overflow for other instruments or finer ticks).
 - **Why signed:** price differences (spreads, P&L) can be negative; some instruments (spreads, some futures) trade at negative prices.
@@ -114,6 +116,14 @@ The book holds only **displayed** orders. Nasdaq ITCH does not publish hidden, m
 
 - **Why:** `bids_` and `asks_` are different map types, but their levels are the same `std::list<Order>`. Matching inside a level is the part with the logic, so it is written once; only the outer "walk the best levels" loop is duplicated per side (a few lines each). The alternative, a function template over the map type, removes that duplication at the cost of a new language feature.
 - **Validation before matching:** `submit` rejects a zero quantity or a duplicate id before trading anything, so a rejected order never leaves partial trades behind.
+
+### D14. ITCH integers are assembled byte by byte
+
+- **Why:** ITCH is big-endian (most significant byte first); ARM and x86 are little-endian, so the raw bytes can't be used as a number. `read_be` shifts in one byte at a time.
+- **Alternatives:** casting a struct over the buffer (`reinterpret_cast`) is undefined behaviour in C++ (strict aliasing, misaligned reads) and still has the wrong byte order; `memcpy` + `std::byteswap` needs C++23.
+- **Cost: none.** With `-O2` each fixed-width reader compiles to one load plus one `rev` (byte-reverse) instruction on arm64, verified in the generated assembly.
+- **Bytes are `uint8_t`, never `char`:** whether `char` is signed depends on the compiler, and a signed `0xFF` would turn into -1 and corrupt the value. Tested in `HighBitBytesStayUnsigned`.
+- **No bounds check per read:** the caller checks the message length once; the readers stay branch-free.
 
 ## Build
 
