@@ -16,12 +16,13 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Order book: add, cancel, best bid/ask, queue per price | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
 | Matching: `submit` with price-time priority, `Trade` records | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
 | ITCH 5.0: big-endian byte readers | `cpp/include/orderbook/itch/bytes.hpp` | done |
-| ITCH 5.0: message decoder (`A F E C X D U P`) | `cpp/include/orderbook/itch/messages.hpp`, `cpp/src/itch/messages.cpp` | done |
+| ITCH 5.0: message decoder (`A F E C X D U P R`) | `cpp/include/orderbook/itch/messages.hpp`, `cpp/src/itch/messages.cpp` | done |
 | ITCH 5.0: message splitter (`ItchReader`, zero-copy) | `cpp/include/orderbook/itch/reader.hpp` | done |
 | ITCH 5.0: memory-mapped file (`MappedFile`, RAII) | `cpp/include/orderbook/itch/mapped_file.hpp`, `cpp/src/itch/mapped_file.cpp` | done |
 | ITCH 5.0: `scan` (count types, check decoders) + `itch_stats` tool | `cpp/include/orderbook/itch/scan.hpp`, `cpp/src/itch/scan.cpp`, `cpp/tools/itch_stats.cpp` | done |
 | Book: `reduce` (ITCH E/C/X) and `replace` (ITCH U) | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
-| Real-day replay: one book per stock + validation | — | milestone 3, next |
+| Replay: one book per stock (by locate) + problem counters | `cpp/include/orderbook/replay.hpp`, `cpp/src/replay.cpp` | done |
+| Real-day replay run (`itch_replay`): checks + speed | — | milestone 3, next |
 | Market-making simulator (queue-aware fills) | — | milestone 4 |
 | Quoting strategy, markouts, P&L attribution | — | milestone 5 |
 | Trend/range signal for the market maker | — | milestone 6 |
@@ -181,6 +182,20 @@ The book holds only **displayed** orders. Nasdaq ITCH does not publish hidden, m
 - **`replace(old, new, qty, price)`** (ITCH `U`): cancel the old order, add the new one on the same side (U doesn't repeat it) at the back of its level, even at an unchanged price. That's Nasdaq's rule: a replace gives up time priority. Every check runs before anything changes, so a rejected replace leaves the old order in place.
 - **Why it matters for market making:** queue position is what decides who gets filled first at a price. Shrinking an order keeps its spot; changing its price (or size via U) sends it to the back. The simulator's fills depend on getting this exactly right.
 - **Alternative:** implement `reduce` as cancel + add of the smaller order. Simpler, but it would wrongly move the order to the back of the queue.
+
+### D20. One book per stock in a vector indexed by stock locate, sized once
+
+- **Choice:** `std::vector<OrderBook>` with 65,536 entries (every value a 2-byte locate can take), created in the constructor and never resized. Every book-changing ITCH message carries its stock's locate, so routing is `books_[locate]`: an array index, no hashing, no search. Symbols come from the `R` (stock directory) messages at the start of the day, kept in a parallel vector.
+- **Why sized once:** when a vector grows it moves its elements to new memory, and if the element type can't be moved safely it copies them. A copied `OrderBook` would be corrupt: its index holds list iterators that point into the *old* book's lists. Never resizing makes that impossible. (Making `OrderBook` non-copyable would close the gap for all code; that needs move semantics, deferred.)
+- **Cost:** 65,536 empty books exist even though about 9,000 stocks trade; an empty book is small, a few MB in total.
+- **Alternative:** `std::unordered_map<std::uint16_t, OrderBook>`: holds only the stocks that trade, but costs a hash on every message.
+
+### D21. Replay counts problems instead of stopping
+
+- Counters, all expected to be 0 on a correct replay: `decode_failures`, `unknown_order` (an E/C/X/D/U for an order the book doesn't have: a missed or misread message), `rejected` (the book refused: duplicate id, more shares executed than the order has), `crossed` (after an add or replace, best bid ≥ best ask; the first one's stock and time are kept for investigation).
+- **Why count rather than stop:** one bad message shouldn't hide what happens in the rest of the day, and the size of each counter says how big a problem is.
+- **Locked counts as crossed:** bid = ask on one venue's displayed book is impossible in continuous trading, because those two orders would trade. Expected exceptions are periods without matching (halts, before an IPO opens), which the real run will show.
+- **Only adds and replaces are checked for crosses:** removing shares can't make a book cross.
 
 ## Build
 

@@ -62,8 +62,16 @@ std::size_t message_length(char type) {
     case 'D': return 19;
     case 'U': return 35;
     case 'P': return 44;
+    case 'R': return 39;
     default: return 0;  // a type we don't decode
   }
+}
+
+std::optional<StockDirectory> decode_stock_directory(const std::uint8_t* p, std::size_t len) {
+  if (!fits(p, len, 'R')) {
+    return std::nullopt;
+  }
+  return StockDirectory{.header = read_header(p), .stock = read_text<8>(p + 11)};
 }
 
 std::optional<AddOrder> decode_add_order(const std::uint8_t* p, std::size_t len) {

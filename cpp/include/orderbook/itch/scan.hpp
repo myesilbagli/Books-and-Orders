@@ -18,7 +18,7 @@ struct ScanStats {
   std::array<std::uint64_t, 256> count_by_type{};
   std::uint64_t messages = 0;
   std::uint64_t bytes = 0;             // consumed, length prefixes included
-  std::uint64_t decode_failures = 0;   // our types (A F E C X D U P) the decoder rejected
+  std::uint64_t decode_failures = 0;   // our types (A F E C X D U P R) the decoder rejected
   ReadStatus end_status = ReadStatus::End;
 };
 

@@ -53,6 +53,7 @@ TEST(ItchMessagesTest, KnowsTheLengthOfEachType) {
   EXPECT_EQ(message_length('D'), 19u);
   EXPECT_EQ(message_length('U'), 35u);
   EXPECT_EQ(message_length('P'), 44u);
+  EXPECT_EQ(message_length('R'), 39u);
 }
 
 // 'S' (system event) is real ITCH, just not one we decode.
@@ -199,6 +200,16 @@ TEST(ItchMessagesTest, DecodesNonCrossTrade) {
   EXPECT_EQ(m->stock, symbol("AAPL    "));
   EXPECT_EQ(m->price, 1'502'750);
   EXPECT_EQ(m->match_number, 123'458u);
+}
+
+TEST(ItchMessagesTest, DecodesStockDirectory) {
+  auto buf = make_message('R', 39);
+  put_text(buf, 11, "AAPL", 8);
+
+  const auto m = decode_stock_directory(buf.data(), buf.size());
+  ASSERT_TRUE(m.has_value());
+  EXPECT_EQ(m->header.stock_locate, 13u);
+  EXPECT_EQ(m->stock, symbol("AAPL    "));
 }
 
 // --- rejects: bad input gives nullopt, never a half-decoded message ---------------

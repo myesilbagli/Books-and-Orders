@@ -30,6 +30,14 @@ struct Header {
   std::uint64_t timestamp_ns;   // nanoseconds since midnight
 };
 
+// 'R': one per stock at the start of the day; tells us which locate number is which
+// symbol (AAPL = 13 on 30 Dec 2019). The other fields (market category, round lot...)
+// are skipped until something needs them.
+struct StockDirectory {
+  Header header;
+  Symbol stock;
+};
+
 // 'A' (anonymous) and 'F' (attributed): a new displayed order rests on the book.
 struct AddOrder {
   Header header;
@@ -98,6 +106,8 @@ struct NonCrossTrade {
 // The caller uses it to check a message before decoding it.
 [[nodiscard]] std::size_t message_length(char type);
 
+[[nodiscard]] std::optional<StockDirectory> decode_stock_directory(const std::uint8_t* p,
+                                                                    std::size_t len);
 [[nodiscard]] std::optional<AddOrder> decode_add_order(const std::uint8_t* p, std::size_t len);
 [[nodiscard]] std::optional<OrderExecuted> decode_order_executed(const std::uint8_t* p,
                                                                  std::size_t len);

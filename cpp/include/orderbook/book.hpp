@@ -63,6 +63,10 @@ class OrderBook {
   // Total shares resting at one price. 64-bit: many 32-bit orders can sum past 4.29 billion.
   [[nodiscard]] std::uint64_t volume_at(Side side, Price price) const;
 
+  // Is this order resting in the book? Lets the replay tell "never heard of it" apart
+  // from "the book refused the change".
+  [[nodiscard]] bool contains(OrderId id) const { return index_.contains(id); }
+
   [[nodiscard]] std::size_t order_count() const { return index_.size(); }
   [[nodiscard]] std::size_t level_count(Side side) const {
     return side == Side::Buy ? bids_.size() : asks_.size();
