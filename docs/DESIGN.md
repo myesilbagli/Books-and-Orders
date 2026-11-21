@@ -19,7 +19,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | ITCH 5.0: message decoder (`A F E C X D U P`) | `cpp/include/orderbook/itch/messages.hpp`, `cpp/src/itch/messages.cpp` | done |
 | ITCH 5.0: message splitter (`ItchReader`, zero-copy) | `cpp/include/orderbook/itch/reader.hpp` | done |
 | ITCH 5.0: memory-mapped file (`MappedFile`, RAII) | `cpp/include/orderbook/itch/mapped_file.hpp`, `cpp/src/itch/mapped_file.cpp` | done |
-| ITCH 5.0: `itch_stats` message counter on a real day | — | next |
+| ITCH 5.0: `scan` (count types, check decoders) + `itch_stats` tool | `cpp/include/orderbook/itch/scan.hpp`, `cpp/src/itch/scan.cpp`, `cpp/tools/itch_stats.cpp` | done |
 | Real-day replay + validation | — | milestone 3 |
 | Market-making simulator (queue-aware fills) | — | milestone 4 |
 | Quoting strategy, markouts, P&L attribution | — | milestone 5 |
@@ -158,6 +158,13 @@ The book holds only **displayed** orders. Nasdaq ITCH does not publish hidden, m
 - **Read-only and private (`PROT_READ`, `MAP_PRIVATE`), plus `madvise(MADV_SEQUENTIAL)`:** the OS reads ahead and may drop pages behind us. It's a hint; ignoring it changes speed, not results.
 - **POSIX only:** macOS and Linux. No Windows support planned.
 
+### D18. `scan` is a library function; `itch_stats` is a thin tool around it
+
+- **Why split:** the counting and decode checks are tested with hand-built bytes like everything else; the tool only maps the file, calls `scan`, times it and prints. Exit code 0 only for a clean `End` and 0 decode failures, so a script can rely on it.
+- **Counts are an array indexed by the type byte** (`count_by_type['A']`): 256 slots cover every byte value, so counting is a single add with no lookup, and unknown types are still counted.
+- **Timing uses `steady_clock`**, which never jumps backwards (the same reason as D4).
+- **First real-data check (30 Dec 2019, first 0.73 GB of the file, the part downloaded so far):** 22.7 M messages, **0 decode failures**, `Truncated` at the end as expected for a partial file. 8,906 stock directory (`R`) messages, one per listed stock. About 117 M messages/s, or 3.75 GB/s, **warm** (the file was just written, so it was in the page cache); a cold run will be slower.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -167,4 +174,8 @@ The book holds only **displayed** orders. Nasdaq ITCH does not publish hidden, m
 cmake --preset debug
 cmake --build --preset debug
 ctest --preset debug
+
+# a real day (release build; the file lives in data/, which git ignores)
+cmake --preset release && cmake --build --preset release
+./build/release/cpp/itch_stats data/itch/12302019.NASDAQ_ITCH50
 ```

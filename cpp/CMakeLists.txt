@@ -4,6 +4,7 @@ add_library(orderbook STATIC
   src/book.cpp
   src/itch/messages.cpp
   src/itch/mapped_file.cpp
+  src/itch/scan.cpp
 )
 target_include_directories(orderbook PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 orderbook_warnings(orderbook)
@@ -16,6 +17,7 @@ add_executable(orderbook_tests
   tests/itch_messages_test.cpp
   tests/itch_reader_test.cpp
   tests/mapped_file_test.cpp
+  tests/itch_scan_test.cpp
 )
 target_link_libraries(orderbook_tests PRIVATE orderbook GTest::gtest_main)
 orderbook_warnings(orderbook_tests)
@@ -23,3 +25,8 @@ orderbook_warnings(orderbook_tests)
 include(GoogleTest)
 # Registers each TEST() with CTest separately, so `ctest` shows them one by one.
 gtest_discover_tests(orderbook_tests)
+
+# Command-line tools that run on real ITCH files (not part of the tests).
+add_executable(itch_stats tools/itch_stats.cpp)
+target_link_libraries(itch_stats PRIVATE orderbook)
+orderbook_warnings(itch_stats)
