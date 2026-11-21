@@ -5,3 +5,6 @@ build/
 compile_commands.json
 CLAUDE.md
 notes/
+
+# Market data: large and licensed by Nasdaq, never committed
+data/

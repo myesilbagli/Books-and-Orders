@@ -17,7 +17,8 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Matching: `submit` with price-time priority, `Trade` records | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
 | ITCH 5.0: big-endian byte readers | `cpp/include/orderbook/itch/bytes.hpp` | done |
 | ITCH 5.0: message decoder (`A F E C X D U P`) | `cpp/include/orderbook/itch/messages.hpp`, `cpp/src/itch/messages.cpp` | done |
-| ITCH 5.0: file reader | — | next |
+| ITCH 5.0: message splitter (`ItchReader`, zero-copy) | `cpp/include/orderbook/itch/reader.hpp` | done |
+| ITCH 5.0: memory-mapped file (`MappedFile`) + `itch_stats` message counter | — | next |
 | Real-day replay + validation | — | milestone 3 |
 | Market-making simulator (queue-aware fills) | — | milestone 4 |
 | Quoting strategy, markouts, P&L attribution | — | milestone 5 |
@@ -134,6 +135,17 @@ The book holds only **displayed** orders. Nasdaq ITCH does not publish hidden, m
 - **`A` and `F` share one struct:** `F` only adds the firm's MPID (e.g. `GSCO`); for `A` it is four spaces. The book treats them the same.
 - **Text is `std::array<char, N>`, not `std::string`:** fixed size, no heap allocation, and one day's file holds tens of millions of messages.
 - **`P` (non-cross trade) is decoded but doesn't change the book:** it reports a trade with a hidden order, which was never on the book. It matters for volume and, later, for spotting hidden liquidity.
+
+### D16. The reader walks bytes in memory; the file gets there by `mmap`
+
+- **Choice:** `ItchReader` takes a pointer and a size, and `next()` hands out each message as a pointer into those bytes (zero-copy). It knows nothing about files. The file will be memory-mapped (`mmap`): the OS shows the whole file as one array and loads 16 KB pages only when they're touched, so a ~10 GB day never has to fit in RAM at once.
+- **Why:** no copy per message, no allocation, and the code is a short loop over an array. Tests hand it a small byte vector; the real run hands it the mapped file. Same code either way.
+- **Alternatives:** loading the whole file into a buffer (10 GB of RAM for nothing); streaming with `std::ifstream` into a reused buffer (portable, but one copy per message and more bookkeeping at chunk boundaries); reading through zlib straight from the `.gz` (saves ~10 GB of disk, adds a dependency and a copy).
+- **Speed, honestly:** for a front-to-back read, `mmap` and large `read()` calls both run close to disk speed; mmap's gain is the missing copy and the simpler code. Reading isn't the bottleneck anyway: splitting and decoding costs a few ns per message, while the book's `std::map`/`std::list` updates cost far more. A second run is much faster because the file stays in the OS page cache, so benchmarks must report cold and warm runs separately.
+- **Errors are explicit:** `End` (clean end between messages), `Truncated` (the file stops inside a length prefix or a message, typically a partial download), `Invalid` (a length of 0). After an error the position doesn't move: once we've lost track of where messages start, everything after is garbage, so the reader must not continue.
+- **Overflow-safe bounds check:** `len > left - 2` instead of `pos + 2 + len > size`.
+- **Market data stays out of git:** files live in `data/` (git-ignored). Nasdaq's sample days are free to download from `emi.nasdaq.com`, but large and not ours to republish.
+- **Live trading is different:** a real feed arrives over UDP multicast (MoldUDP64), often through kernel-bypass network cards, not from a file. `mmap` is the replay and research tool.
 
 ## Build
 
