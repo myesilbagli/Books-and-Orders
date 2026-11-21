@@ -16,8 +16,8 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Order book: add, cancel, best bid/ask, queue per price | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
 | Matching: `submit` with price-time priority, `Trade` records | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
 | ITCH 5.0: big-endian byte readers | `cpp/include/orderbook/itch/bytes.hpp` | done |
-| ITCH 5.0: message decoder (`A F E C X D U P`) | — | next |
-| ITCH 5.0: file reader | — | planned |
+| ITCH 5.0: message decoder (`A F E C X D U P`) | `cpp/include/orderbook/itch/messages.hpp`, `cpp/src/itch/messages.cpp` | done |
+| ITCH 5.0: file reader | — | next |
 | Real-day replay + validation | — | milestone 3 |
 | Market-making simulator (queue-aware fills) | — | milestone 4 |
 | Quoting strategy, markouts, P&L attribution | — | milestone 5 |
@@ -124,6 +124,16 @@ The book holds only **displayed** orders. Nasdaq ITCH does not publish hidden, m
 - **Cost: none.** With `-O2` each fixed-width reader compiles to one load plus one `rev` (byte-reverse) instruction on arm64, verified in the generated assembly.
 - **Bytes are `uint8_t`, never `char`:** whether `char` is signed depends on the compiler, and a signed `0xFF` would turn into -1 and corrupt the value. Tested in `HighBitBytesStayUnsigned`.
 - **No bounds check per read:** the caller checks the message length once; the readers stay branch-free.
+
+### D15. One decode function per ITCH message type, returning `std::optional`
+
+- **Choice:** `decode_add_order`, `decode_order_delete`, … each take the whole message (pointer + length) and return a plain struct, or `std::nullopt` if the message doesn't fit. The caller (the file reader) looks at the type byte and picks the function with a `switch`.
+- **Why:** the simplest design with no new machinery; each decoder is tested on its own with hand-built bytes.
+- **Alternatives:** one `decode()` returning a `std::variant` of all message types (one entry point, but a heavier language feature and every caller has to unpack it); a handler that the parser calls back (`on_add`, `on_delete`, …), common in HFT because nothing is returned or copied, but it needs templates or virtual functions. Moving to a handler later is easy, since it would just call these decoders.
+- **Validation:** before reading any field, the length must equal that type's length *and* the type byte must match (`A` and `C` are both 36 bytes, so the length alone can't tell them apart). A side byte other than `B`/`S`, or a printable flag other than `Y`/`N`, is rejected too. A bad message is never half-decoded.
+- **`A` and `F` share one struct:** `F` only adds the firm's MPID (e.g. `GSCO`); for `A` it is four spaces. The book treats them the same.
+- **Text is `std::array<char, N>`, not `std::string`:** fixed size, no heap allocation, and one day's file holds tens of millions of messages.
+- **`P` (non-cross trade) is decoded but doesn't change the book:** it reports a trade with a hidden order, which was never on the book. It matters for volume and, later, for spotting hidden liquidity.
 
 ## Build
 
