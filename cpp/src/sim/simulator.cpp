@@ -101,6 +101,9 @@ void Simulator::check_fill(QuoteSide& q, const Order& executed, Quantity shares,
       .touch_share = at_touch ? static_cast<double>(ours_at_touch) / static_cast<double>(at_touch)
                               : 0.0,
       .shares_left = at_our_price > leaving ? at_our_price - leaving : 0,  // unsigned: no < 0
+      // The last two-sided mid, from before this message was applied: the price the
+      // spread is measured from. Always set while we quote; the fallback is "no spread".
+      .mid_x2_before = last_mid_x2_.value_or(2 * price),
   });
 
   // Buying adds shares and spends money; selling the reverse. Quantity is unsigned, so

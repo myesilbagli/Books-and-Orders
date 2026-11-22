@@ -9,6 +9,7 @@ add_library(orderbook STATIC
   src/sim/volatility.cpp
   src/sim/avellaneda_stoikov.cpp
   src/sim/imbalance.cpp
+  src/sim/pnl.cpp
   src/itch/messages.cpp
   src/itch/mapped_file.cpp
   src/itch/scan.cpp
@@ -34,6 +35,7 @@ add_executable(orderbook_tests
   tests/avellaneda_stoikov_test.cpp
   tests/imbalance_test.cpp
   tests/pull_when_thin_test.cpp
+  tests/pnl_test.cpp
 )
 target_link_libraries(orderbook_tests PRIVATE orderbook GTest::gtest_main)
 orderbook_warnings(orderbook_tests)

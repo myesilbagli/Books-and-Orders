@@ -32,7 +32,9 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Queue-imbalance study + `imbalance_study` tool | `cpp/include/orderbook/sim/imbalance.hpp`, `cpp/src/sim/imbalance.cpp`, `cpp/tools/imbalance_study.cpp` | done (5d-a), D32 |
 | Book context on every fill (touch share, shares left) + grouped markouts in `mm_sim` | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/tools/mm_sim.cpp` | done (5d-b1), D33 |
 | Pull-when-thin wrapper, `mm_sim --pull`, quote message count | `cpp/include/orderbook/sim/pull_when_thin.hpp`, `cpp/include/orderbook/sim/simulator.hpp`, `cpp/tools/mm_sim.cpp` | done (5d-b2), D34 |
-| P&L attribution | — | milestone 5 (5e) |
+| P&L breakdown (spread / adverse selection / inventory) | `cpp/include/orderbook/sim/pnl.hpp`, `cpp/src/sim/pnl.cpp`, `cpp/tools/mm_sim.cpp` | done (5a), D35 |
+| Maker rebate (`mm_sim --rebate`) | `cpp/tools/mm_sim.cpp` | done (5b), D36 |
+| Confidence intervals, summary table | — | milestone 5 (5c-5d) |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -59,6 +61,7 @@ The book holds only **displayed** orders. Nasdaq ITCH does not publish hidden, m
 - **What it misses:** a move that starts on another venue can reach Nasdaq's book after it has already traded elsewhere (adverse selection we can't see coming), and real market makers quote on many venues at once (routing, inter-venue latency, Reg NMS order protection). Multi-venue simulation is out of scope.
 - **Hidden liquidity:** see Data flow above. Non-displayed orders only appear when they trade (`P` messages), so fills are slightly optimistic.
 - **Plan for the signal (milestone 6):** trend vs range labels and order-flow features come from **consolidated** data (all venues' trades and best prices), which is much smaller and cheaper than order-by-order data. The quotes themselves are still simulated on Nasdaq's book.
+- **No stop loss, by design for now (22 Nov 2026).** Risk control is only the inventory limit and passive exit (our ask waits to be hit). The simulator can't take liquidity, so there's no "cross the spread to get out". On the dev day it wouldn't pay on average: about 90 % of the adverse move is over within 1 s (D35) and the drift after 10 s is ~0.16 cents a share, while crossing costs a spread plus the taker fee (~1.5 cents). For a market maker a stop buys a smaller tail at the cost of the spread; that matters on trend days. **Milestone 6:** add an aggressive exit (by price move or position age) together with the trend/range signal, and measure it on trend days.
 - **One development day, in-sample results (decided 22 Nov 2026).** Everything so far runs on 30 Dec 2019, a quiet holiday-week day, and some choices were made by looking at it (H = 10 s, the reference variance). Results on it are in-sample: they show the system works and what each piece does, not that a strategy makes money. Milestone 5 builds the system; making it profitable comes after, and is checked on days held out until then (Nasdaq's public folder has 14 more days, 2018-2020; Databento for more), with confidence intervals on every comparison.
 
 ## Decisions
@@ -425,6 +428,47 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Caveat, not yet checked:** one aggressive order that eats a level shows up as several executions, likely with the same timestamp. At 0 µs the simulator can react between them, which a real system can't (it sees the sweep after it's done). That would flatter the 0 µs pull results, so the real effect is at most as good as shown.
 - **What this points to:** queue position (joining early, not giving up a place) and the slower part of the loss (10-60 s), which no queue signal touches. Microprice β is skipped: D32 already shows it would barely move a quote that only joins or steps back from the touch.
 
+### D35. P&L split into spread, adverse selection and inventory
+
+- **Identity, per fill** (q shares at price p, s = +1 buy / −1 sell; mids in ticks):
+  `s·q·(mid_end − p) = s·q·(mid_before − p) + s·q·(mid_after_h − mid_before) + s·q·(mid_end − mid_after_h)`
+  = **spread** + **adverse selection** (the move within h) + **inventory** (holding it after h). The three terms telescope, so over all fills they add up to the mark-to-market P&L exactly. The rebate is separate, on top (5b).
+- **Choices:**
+  - **Spread is measured from the mid just before the fill** (`Fill::mid_x2_before`, the last two-sided mid before the execution is applied), not the mid at the fill's timestamp. A fill that breaks a level moves the mid at that same timestamp; that move is the counterparty's information, so it belongs to adverse selection. (The markout at 0 in D27 uses the mid after, which is why it reads +0.55 while the spread captured is +1.03.)
+  - **The horizon stops at the end of quoting** (16:00), for the same reason as D28.
+  - **Total recomputed from the fills alone** (cash + position × end mid) and checked against the simulator's own accounting, by a test and by `mm_sim` on every run.
+  - **h is a choice, so `mm_sim` shows three** (1 s, 10 s, 60 s): a longer h moves loss from "inventory" into "adverse selection"; the total never changes.
+- **Full day, AAPL** (dollars, and cents per share):
+
+  | strategy | shares | spread | adverse 1 s | adverse 10 s | adverse 60 s | inventory (10 s) | total |
+  |---|---|---|---|---|---|---|---|
+  | naive, 0 µs | 468 K | +$4,838 (+1.03) | −1.69 | −$8,779 (−1.87) | −2.04 | +$145 (+0.03) | −$3,796 (−0.81) |
+  | naive, 50 µs | 470 K | +$4,569 (+0.97) | −1.72 | −$9,276 (−1.97) | −1.96 | +$1,341 (+0.29) | −$3,366 (−0.72) |
+  | AS 1.0 ¢, 0 µs | 342 K | +$3,703 (+1.08) | −1.74 | −$6,530 (−1.91) | −1.83 | +$512 (+0.15) | −$2,315 (−0.68) |
+  | pull 0.3, 0 µs | 242 K | +$2,600 (+1.08) | −1.81 | −$4,474 (−1.85) | −2.20 | +$255 (+0.11) | −$1,619 (−0.67) |
+
+- **Reading it:**
+  - **The whole loss is adverse selection, and most of it comes in the first second.** We earn about 1 cent a share of spread and give back about 1.7 cents within 1 s (about 90 % of the 10 s figure). Inventory is close to zero at every horizon.
+  - **Every strategy has the same adverse selection per share** (−1.69 to −1.81 at 1 s). AS and the pull rule lose fewer dollars only because they trade fewer shares. That's the D31 and D34 conclusions in one table.
+  - **Inventory isn't the problem, which is why AS couldn't help much:** it manages a cost that is already near zero.
+  - The ~1 cent per share of spread is below half of Nasdaq's average AAPL spread (mostly 2-3 cents, D32), because we're often filled as the spread is narrowing or at a level that's about to break.
+- **So the target is clear:** cut the first-second adverse selection (faster reaction, better queue position, knowing when the other side is informed) or earn enough on top (rebates, 5b) to cover it.
+
+### D36. Maker rebate: real money, not enough to cover adverse selection
+
+- **What:** exchanges pay whoever adds displayed liquidity a rebate per share when their order is executed (Nasdaq's maker-taker model; the taker pays a fee). We only ever add liquidity, so every share we trade earns it. `mm_sim --rebate <cents per share>` adds it to the breakdown, on top of the three parts (D35). It doesn't change behaviour, so it's a parameter, not a strategy.
+- **Size:** tiered by monthly volume. Roughly 0.2 cents a share for a mid-size firm and about 0.3 for the top tiers is the usual range for Nasdaq in 2019; the exact schedule hasn't been checked. Default 0, so no result depends on an assumed number unless asked.
+- **Full day, AAPL, 0 µs** (cents per share):
+
+  | strategy | total | + 0.2 ¢ rebate | + 0.3 ¢ rebate |
+  |---|---|---|---|
+  | naive | −$3,796 (−0.81) | −$2,859 (−0.61) | −$2,391 (−0.51) |
+  | AS 1.0 ¢ (342 K shares) | −$2,315 (−0.68) | −$1,630 (−0.48) | −$1,288 (−0.38) |
+  | pull 0.3 (242 K shares) | −$1,619 (−0.67) | −$1,135 (−0.47) | −$893 (−0.37) |
+
+  (AS and pull rows: shares × rebate added to their totals from D35.)
+- **Reading it:** the rebate covers about a quarter of the naive loss. To break even the naive strategy would need 0.81 cents a share, almost three times the best tier. Rebates are why market makers can live on thin edges, but they can't pay for being picked off: the first-second adverse selection (D35) has to come down.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -442,5 +486,6 @@ cmake --preset release && cmake --build --preset release
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50   # latency in µs
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --as 0.2   # Avellaneda-Stoikov, 0.2 cents lean per lot
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --pull 0.2   # no quote on a side under 20% of the touch
+./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --rebate 0.2   # add a 0.2 cent/share maker rebate
 ./build/release/cpp/imbalance_study data/itch/12302019.NASDAQ_ITCH50 AAPL   # does queue imbalance predict the mid?
 ```

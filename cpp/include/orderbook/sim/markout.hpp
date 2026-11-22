@@ -21,6 +21,7 @@ struct Fill {
   // The book on our side at the moment of the fill, before the execution is applied (D33):
   double touch_share = 0.0;       // our side's size at the touch / both sides' sizes there
   std::uint64_t shares_left = 0;  // real shares left at our price after this execution
+  Price mid_x2_before = 0;        // twice the mid just before the fill: the spread we earned
 };
 
 // One change of the mid. Stored as bid + ask (twice the mid) so it stays an integer when

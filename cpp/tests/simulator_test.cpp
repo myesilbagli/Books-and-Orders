@@ -1,5 +1,7 @@
 #include "orderbook/sim/simulator.hpp"
 
+#include "orderbook/sim/pnl.hpp"
+
 #include "itch_builders.hpp"
 
 #include <gtest/gtest.h>
@@ -136,6 +138,25 @@ TEST(SimulatorTest, PnlIsMarkedAtTheEndOfQuoting) {
   EXPECT_DOUBLE_EQ(sim.pnl_dollars(), 0.05);            // still marked at 1.0005
 }
 
+// The breakdown recomputes the P&L from the fills alone; it must agree with the
+// simulator's own cash and inventory accounting.
+TEST(SimulatorTest, PnlBreakdownAgreesWithTheSimulator) {
+  Simulator sim(config());
+  open_market(sim);
+  feed(sim, add(kAapl, 3, 'B', 300, 10'000));
+  feed(sim, executed(kAapl, 3, 300));               // long 100 at 1.0000
+  feed(sim, add(kAapl, 4, 'B', 100, 10'003));       // the mid moves up
+  feed(sim, add(kAapl, 5, 'S', 100, 10'010));
+  feed(sim, executed(kAapl, 5, 100));               // sell 100 at 1.0010: flat
+  feed(sim, add(kAapl, 6, 'B', 100, 10'003));
+  feed(sim, executed(kAapl, 6, 100));               // long 100 again at 1.0003
+  const PnlBreakdown b =
+      pnl_breakdown(sim.fills(), sim.mids(), 1'000'000'000, config().end_ns, 0.0);
+  ASSERT_EQ(sim.fills().size(), 3u);
+  EXPECT_NEAR(b.total / 10'000.0, sim.pnl_dollars(), 1e-12);
+  EXPECT_NEAR(b.spread + b.adverse_selection + b.inventory, b.total, 1e-9);
+}
+
 // At the limit, stop quoting the side that would add to the position.
 TEST(SimulatorTest, InventoryLimitPullsTheBid) {
   SimConfig c = config();
@@ -172,6 +193,18 @@ TEST(SimulatorTest, FillRecordsTheBookOnOurSide) {
   ASSERT_EQ(sim.fills().size(), 1u);
   EXPECT_DOUBLE_EQ(sim.fills()[0].touch_share, 0.8);
   EXPECT_EQ(sim.fills()[0].shares_left, 340u);
+}
+
+// The mid just before the fill (1.0005), not after it: a fill that breaks a level moves
+// the mid at once, and that move belongs to adverse selection, not to the spread (D35).
+TEST(SimulatorTest, FillRecordsTheMidBeforeIt) {
+  Simulator sim(config());
+  open_market(sim);
+  feed(sim, add(kAapl, 3, 'B', 100, 10'000));
+  feed(sim, executed(kAapl, 1, 100));  // ahead of us
+  feed(sim, executed(kAapl, 3, 100));  // behind us: fills us and empties 1.0000
+  ASSERT_EQ(sim.fills().size(), 1u);
+  EXPECT_EQ(sim.fills()[0].mid_x2_before, 20'010);
 }
 
 // Ask side: #2 and #4 at 1.0010 (200), bid #1 100. Share 200 / 300; #4 fully executes.

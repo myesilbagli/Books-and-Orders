@@ -2,13 +2,14 @@
 // report fills, inventory, P&L and markouts.
 //
 //   ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 [fills.csv]
-//                             [--as 0.2] [--pull 0.2]
+//                             [--as 0.2] [--pull 0.2] [--rebate 0.2]
 //
 // The third argument is the latency in microseconds. Without --as the naive strategy
 // runs (join the touch); --as <cents> runs Avellaneda-Stoikov with gamma set so that,
 // at AAPL's average volatility on 30 Dec 2019, one lot (one quote) leans the quotes by
 // that many cents (D31). --pull <share> wraps either one: no quote on a side whose share
-// of the shares at the touch is below <share> (D34). Quoting runs 09:31-16:00 ET: the
+// of the shares at the touch is below <share> (D34). --rebate <cents> adds the maker
+// rebate per share to the P&L breakdown (D36). Quoting runs 09:31-16:00 ET: the
 // first minute is skipped because the opening auction (cross) works by different rules
 // than the continuous book the simulator models.
 
@@ -16,10 +17,12 @@
 #include "orderbook/itch/messages.hpp"
 #include "orderbook/itch/reader.hpp"
 #include "orderbook/sim/avellaneda_stoikov.hpp"
+#include "orderbook/sim/pnl.hpp"
 #include "orderbook/sim/pull_when_thin.hpp"
 #include "orderbook/sim/simulator.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -96,6 +99,18 @@ void print_header(const char* title) {
   std::cout << "\n";
 }
 
+// One line of the P&L breakdown: a part at each of the three horizons, in dollars and in
+// cents per share. Values come in ticks x shares (1 tick = $0.0001; 1 cent = 100 ticks).
+void print_parts(const char* name, const std::array<double, 3>& ticks, std::uint64_t shares) {
+  std::cout << "  " << std::left << std::setw(19) << name << std::right;
+  for (const double t : ticks) {
+    const double cents_per_share = shares ? t / static_cast<double>(shares) / 100.0 : 0.0;
+    std::cout << std::fixed << std::setprecision(0) << std::setw(9) << t / 10'000.0
+              << std::setprecision(2) << std::setw(7) << cents_per_share;
+  }
+  std::cout << "\n";
+}
+
 std::string clock_text(std::uint64_t ns) {
   const std::uint64_t s = ns / kSecond;
   std::ostringstream out;
@@ -110,7 +125,7 @@ int main(int argc, char* argv[]) {
   if (argc < 4) {
     std::cerr << "usage: " << argv[0]
               << " <itch-file> <SYMBOL> <latency_us> [fills.csv] [--as <cents per lot>]"
-              << " [--pull <touch share>]\n";
+              << " [--pull <touch share>] [--rebate <cents per share>]\n";
     return 2;
   }
   const std::string symbol = argv[2];
@@ -118,12 +133,15 @@ int main(int argc, char* argv[]) {
   std::optional<std::string> csv_path;
   std::optional<double> as_lean_cents;
   std::optional<double> pull_share;
+  double rebate_cents = 0.0;  // what the exchange pays per share of liquidity we add
   for (int i = 4; i < argc; ++i) {
     const std::string arg = argv[i];
     if (arg == "--as" && i + 1 < argc) {
       as_lean_cents = std::strtod(argv[++i], nullptr);
     } else if (arg == "--pull" && i + 1 < argc) {
       pull_share = std::strtod(argv[++i], nullptr);
+    } else if (arg == "--rebate" && i + 1 < argc) {
+      rebate_cents = std::strtod(argv[++i], nullptr);
     } else {
       csv_path = arg;
     }
@@ -221,6 +239,43 @@ int main(int argc, char* argv[]) {
             << " per fill)\n"
             << std::setprecision(2) << "P&L:              $" << sim.pnl_dollars()
             << "  (inventory marked at the 16:00 mid, no fees or rebates)\n";
+
+  // Where the P&L came from (D35): the spread we earned, the move against us within the
+  // horizon (adverse selection), and holding the position after it (inventory). Shown for
+  // three horizons: a longer one moves loss from "inventory" to "adverse selection".
+  {
+    const std::uint64_t hs[] = {kSecond, 10 * kSecond, 60 * kSecond};
+    ob::sim::PnlBreakdown parts[3];
+    for (int i = 0; i < 3; ++i) {
+      // 1 cent = 100 ticks; the rebate is the same at every horizon
+      parts[i] = ob::sim::pnl_breakdown(fills, sim.mids(), hs[i], config.end_ns,
+                                        rebate_cents * 100.0);
+    }
+    const std::uint64_t shares = parts[0].shares;
+    std::cout << "\nP&L breakdown ($ and cents per share), adverse selection measured over\n  "
+              << std::setw(19) << "" << std::setw(16) << "1 s" << std::setw(16) << "10 s"
+              << std::setw(16) << "60 s" << "\n";
+    print_parts("spread captured",
+                {parts[0].spread, parts[1].spread, parts[2].spread}, shares);
+    print_parts("adverse selection",
+                {parts[0].adverse_selection, parts[1].adverse_selection,
+                 parts[2].adverse_selection},
+                shares);
+    print_parts("inventory", {parts[0].inventory, parts[1].inventory, parts[2].inventory},
+                shares);
+    print_parts("total", {parts[0].total, parts[1].total, parts[2].total}, shares);
+    if (rebate_cents != 0.0) {
+      print_parts("maker rebate", {parts[0].rebate, parts[1].rebate, parts[2].rebate}, shares);
+      print_parts("total + rebate",
+                  {parts[0].total + parts[0].rebate, parts[1].total + parts[1].rebate,
+                   parts[2].total + parts[2].rebate},
+                  shares);
+    }
+    // The breakdown recomputes the P&L from the fills alone; it must match the simulator.
+    const double gap = parts[0].total / 10'000.0 - sim.pnl_dollars();
+    std::cout << "  check: total vs simulator P&L " << std::setprecision(2)
+              << (gap < 0.01 && gap > -0.01 ? "agree" : "DISAGREE") << "\n";
+  }
 
   // Markouts for all fills, then split by what the book looked like when we were filled
   // (D33): is a fill from a thin touch, or with nobody left behind us, worse?
