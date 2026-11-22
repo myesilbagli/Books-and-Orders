@@ -37,7 +37,9 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | P&L breakdown (spread / adverse selection / inventory) | `cpp/include/orderbook/sim/pnl.hpp`, `cpp/src/sim/pnl.cpp`, `cpp/tools/mm_sim.cpp` | done (5a), D35 |
 | Maker rebate (`mm_sim --rebate`) | `cpp/tools/mm_sim.cpp` | done (5b), D36 |
 | Fills CSV + block-bootstrap intervals (`research/bootstrap.py`) | `cpp/include/orderbook/sim/fills_csv.hpp`, `cpp/src/sim/fills_csv.cpp`, `research/bootstrap.py`, `research/test_bootstrap.py` | done (5c), D37 |
-| Milestone 5 summary | — | milestone 5 (5d) |
+| Milestone 5 results page + reproduce script | `docs/RESULTS.md`, `research/run_m5.sh` | done (5d) |
+| Time bars (OHLCV from the mid) for the indicators | `cpp/include/orderbook/sim/bars.hpp`, `cpp/src/sim/bars.cpp` | done (6b-1), D38 |
+| Indicators (VWAP, SMA, EMA, Bollinger, Stoch RSI) | — | milestone 6 (6b) |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -497,6 +499,16 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - **None of the strategy ideas so far is distinguishable from naive** on what they control, the 10 s P&L per share. Their smaller dollar losses (D31, D34) are fewer shares traded, now confirmed: per share they are the same.
   - **Latency is the one difference that shows up:** 50 µs is about 0.16 cents a share worse than 0 µs at 10 s, and the interval excludes zero. This turns around the earlier reading. In total P&L, 50 µs looked *better* (−$3,366 vs −$3,796, D27), but that gap was the inventory part (+$1,341 vs +$145, D35), i.e. the day's path, not the strategy. Splitting the P&L and putting intervals on the controllable part is what shows it.
   - Still one day: these say what is noise *on this day*. Whether anything holds on other days is the out-of-sample question for the optimization phase.
+
+### D38. Bars for the indicators: mid prices, any interval, no look-ahead
+
+- **Why bars:** the indicators to try in milestone 6 (VWAP, SMA 20, EMA 9/21, Bollinger (20, 2), Stochastic RSI (14, 14, 3, 3)) are defined on closed bars. One `BarBuilder` makes them for every indicator and every trial, tested once.
+- **Any interval, several at once:** the interval is a parameter. The plan is 1 s and 1 min side by side. The founder's view is that the market is fractal, so the same rules should work on a 1 s chart. That's a hypothesis to test, not an assumption: D32 already shows rules that hold at 1 s and are gone at 10 s. And 1 s fits the problem, since about 90 % of the adverse selection happens within 1 s (D35).
+- **Mid, not trade prices:** at 1 s many bars would have no trade, and trade prices jump between bid and ask while the price hasn't moved (bid-ask bounce). The mid is always defined and has no bounce. Volume still comes from the trades. At 1 min the difference from a trade-price chart is about half a spread.
+- **Quiet bars stay in:** a second with no change is a flat bar (open = high = low = close = last mid, volume 0), as in D29. Skipping it would make a quiet market look busy and stretch "9 bars" over an unknown length of time.
+- **Aligned to the clock:** bars are whole intervals since midnight, so the 1-min bars are 09:30:00-09:31:00 and so on, as on a chart.
+- **No look-ahead:** a bar is handed out only when an event at or after its end arrives, so nothing can use it before it has closed. A change exactly at a bar's end belongs to the next bar and is that bar's open (the same "in force at or before" rule as `mid_x2_at`). This is the most common backtest bug, and a test pins it down.
+- **Trade-off:** each call returns a `std::vector` of the bars it closed. That's simple to use and test, and allocates only when a bar closes. A callback would avoid the vector, if profiling ever shows it matters.
 
 ## Build
 
