@@ -5,6 +5,7 @@ add_library(orderbook STATIC
   src/replay.cpp
   src/sim/queue.cpp
   src/sim/simulator.cpp
+  src/sim/markout.cpp
   src/itch/messages.cpp
   src/itch/mapped_file.cpp
   src/itch/scan.cpp
@@ -25,6 +26,7 @@ add_executable(orderbook_tests
   tests/replay_test.cpp
   tests/sim_queue_test.cpp
   tests/simulator_test.cpp
+  tests/markout_test.cpp
 )
 target_link_libraries(orderbook_tests PRIVATE orderbook GTest::gtest_main)
 orderbook_warnings(orderbook_tests)
@@ -41,3 +43,7 @@ orderbook_warnings(itch_stats)
 add_executable(itch_replay tools/itch_replay.cpp)
 target_link_libraries(itch_replay PRIVATE orderbook)
 orderbook_warnings(itch_replay)
+
+add_executable(mm_sim tools/mm_sim.cpp)
+target_link_libraries(mm_sim PRIVATE orderbook)
+orderbook_warnings(mm_sim)

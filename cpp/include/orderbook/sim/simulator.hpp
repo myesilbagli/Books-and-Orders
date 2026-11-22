@@ -1,6 +1,7 @@
 #pragma once
 
 #include "orderbook/replay.hpp"
+#include "orderbook/sim/markout.hpp"
 #include "orderbook/sim/queue.hpp"
 
 #include <cstddef>
@@ -34,13 +35,6 @@ struct SimConfig {
   std::uint64_t end_ns;
 };
 
-struct Fill {
-  std::uint64_t timestamp_ns;
-  Side side;       // Buy: our bid was hit
-  Price price;     // our quote's price
-  Quantity quantity;
-};
-
 class Simulator {
  public:
   explicit Simulator(const SimConfig& config) : config_(config) {}
@@ -51,13 +45,15 @@ class Simulator {
 
   [[nodiscard]] const Replayer& replay() const { return replay_; }
   [[nodiscard]] const std::vector<Fill>& fills() const { return fills_; }
+  // Our stock's mid every time it changed, in time order: what markouts are measured on.
+  [[nodiscard]] const std::vector<MidPoint>& mids() const { return mids_; }
   [[nodiscard]] const std::optional<VirtualOrder>& bid() const { return bid_.live; }
   [[nodiscard]] const std::optional<VirtualOrder>& ask() const { return ask_.live; }
 
   [[nodiscard]] std::int64_t inventory() const { return inventory_; }  // shares, + is long
   // Money in ticks x shares ($0.0001 per share): sells add, buys subtract.
   [[nodiscard]] std::int64_t cash_ticks() const { return cash_; }
-  // Mark-to-market: cash plus inventory valued at the latest mid, in dollars.
+  // Mark-to-market: cash plus inventory valued at the mid when quoting ended, in dollars.
   [[nodiscard]] double pnl_dollars() const;
 
  private:
@@ -76,6 +72,7 @@ class Simulator {
   QuoteSide bid_{.side = Side::Buy};
   QuoteSide ask_{.side = Side::Sell};
   std::vector<Fill> fills_;
+  std::vector<MidPoint> mids_;
   std::int64_t inventory_ = 0;
   std::int64_t cash_ = 0;
   std::optional<Price> last_mid_x2_;  // bid + ask: twice the mid, so it stays an integer

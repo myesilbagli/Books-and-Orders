@@ -22,10 +22,10 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | ITCH 5.0: `scan` (count types, check decoders) + `itch_stats` tool | `cpp/include/orderbook/itch/scan.hpp`, `cpp/src/itch/scan.cpp`, `cpp/tools/itch_stats.cpp` | done |
 | Book: `reduce` (ITCH E/C/X) and `replace` (ITCH U) | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
 | Replay: one book per stock (by locate) + problem counters | `cpp/include/orderbook/replay.hpp`, `cpp/src/replay.cpp` | done |
-| Real-day replay run (`itch_replay`): checks + speed | `cpp/tools/itch_replay.cpp` | done on 04:00–10:15 ET; full day pending download |
+| Real-day replay run (`itch_replay`): checks + speed | `cpp/tools/itch_replay.cpp` | done, full day (D23) |
 | Simulator: virtual order queue position + fill rules | `cpp/include/orderbook/sim/queue.hpp`, `cpp/src/sim/queue.cpp` | done (4a) |
 | Simulator loop: naive strategy, latency, requoting, fills, P&L | `cpp/include/orderbook/sim/simulator.hpp`, `cpp/src/sim/simulator.cpp` | done (4b) |
-| First simulation on real data, markouts | — | milestone 4c, next |
+| Markouts + `mm_sim` tool; first simulation on real data | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/markout.cpp`, `cpp/tools/mm_sim.cpp` | done (4c), full day (D27) |
 | Quoting strategy, markouts, P&L attribution | — | milestone 5 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
@@ -204,6 +204,7 @@ The book holds only **displayed** orders. Nasdaq ITCH does not publish hidden, m
 - **Finding:** the first replay of real data (30 Dec 2019, 04:00–10:15 ET, 55.4 M messages) showed 524 crossed or locked books. The first was PNRL at 08:00, and PNRL had been **halted** (`H` message, state `H`) since 03:09. Nasdaq accepts orders for a halted stock but matches nothing until it reopens, so its book can legitimately cross. 8 stocks started the day halted.
 - **Choice:** the replay keeps each stock's trading state from `H` messages (`T` trading, `H` halted, `P` paused, `Q` quotation only). A cross while not trading goes to `crossed_not_trading` (expected); a cross while trading goes to `crossed` (a bug). Before any `H` message a stock counts as trading, the strict default.
 - **Not just hiding a number:** the hypothesis was tested, not assumed. After the split, `crossed` is 0 and all 524 are in halted stocks.
+- **Full day: 10 crosses while trading remain, all explained.** Every cross while trading is now logged with its stock and time. All 10 fall in the same second a stock resumed trading after a limit-up/limit-down pause (`P` with reason `LUDP` → `T`): MKD (listed that day, paused repeatedly) at 10:54:21, 11:21:52 and 11:47:19, and MBOT at 14:20:41. On resumption Nasdaq runs a reopening auction for the orders that built up during the pause, and the book stays crossed for microseconds until it prints. Not modelled; the count is kept as is, and every one has a known cause.
 
 ### D23. First replay of a real day: results
 
@@ -220,7 +221,7 @@ On the first 1.6 GB of 30 Dec 2019 (04:00 to 10:15 ET), release build, warm page
 | Peak memory (RSS) | 2.0 GB, of which the mapped file accounts for about 1.6 GB |
 
 - **The book is the bottleneck, as expected (D16):** scanning and decoding alone ran at 117 M messages/s; updating the books brings it down about 30×. Every new order allocates a `std::list` node, an `unordered_map` entry and often a `std::map` level. This is the baseline for the optimization milestone.
-- **Still to do:** the full day, once the download finishes. Success means a clean `End` and the same zeros.
+- **Full day (268.7 M messages, all 8.25 GB):** the file was checked with gzip's built-in CRC32 (`gzip -t`), since Nasdaq's md5 file was no longer available. `itch_stats`: 0 decode failures, clean `End`, 4.9 s. `itch_replay`: clean `End`; 0 decode failures, 0 unknown orders, 0 rejected; 10 crosses while trading, all at resumptions after a pause (D22); 4,767 while halted. **0 orders resting at the end of the day:** every order added during the day was removed by a later message, a strong end-to-end check that no add, execution, cancel or replace was missed. 5 M messages/s, about 55 s.
 
 ### D24. Virtual orders: exact queue position from L3 data, fills when the aggressor passes us
 
@@ -241,6 +242,43 @@ On the first 1.6 GB of 30 Dec 2019 (04:00 to 10:15 ET), release build, warm page
 - **Accounting:** inventory in shares; cash in ticks × shares (exact integers); P&L marks inventory at the latest mid, kept as `bid + ask` (twice the mid) so it stays an integer until the final conversion to dollars.
 - **Not modelled yet:** exchange fees and maker rebates; fills from hidden (`P`) executions; auction (cross) mechanics, since `C` executions are treated like `E`.
 
+### D26. Markouts measured on the stock's own mid series
+
+- **Markout** of a fill `h` later: buy `mid(t+h) − price`, sell `price − mid(t+h)`, per share. Positive means the price went our way afterwards. At `h = 0` a fill at the touch shows about half the spread; how fast it falls as `h` grows is the adverse selection.
+- **Mid series:** the simulator records our stock's mid only when it changes (`bid + ask`, twice the mid, to stay an integer). The mid at any time is the last change at or before it, found by binary search (O(log n)) since the series is in time order.
+- **Quoting starts at 09:31**, not 09:30: the opening auction allocates shares by its own rules, which the continuous-book fill model doesn't capture.
+
+### D27. First simulation: the naive strategy loses, as expected
+
+AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at the time), 100 shares per quote, inventory limit ±500, no fees or rebates:
+
+| Latency | Fills | Shares traded | P&L | Markout (cents/share): 0 | 100 ms | 1 s | 10 s | 60 s |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 5,115 | 297.7 K | −$3,027 | +0.59 | −0.46 | −0.75 | −0.89 | −1.22 |
+| 50 µs | 5,008 | 293.0 K | −$2,731 | +0.54 | −0.57 | −0.88 | −1.12 | −1.22 |
+| 1 ms | 5,466 | 330.2 K | −$3,910 | +0.29 | −0.75 | −1.07 | −1.20 | −1.38 |
+
+- **What it shows:** at the moment of the fill we're up about half a spread (+0.5 to +0.6 cents), and within 100 ms that has turned into a loss. Joining at the back of the queue means we're mostly filled when the whole level is being taken out, which is when the price is about to move through it: textbook adverse selection.
+- **Consistency check:** P&L ≈ shares traded × long-horizon markout (≈ 298 K × −1.0 cent ≈ −$3,000), so the accounting and the markouts agree.
+- **Latency:** 1 ms is clearly worse: more fills (stale quotes picked off), a lower markout at the instant of the fill, and the worst P&L. Between 0 and 50 µs the difference is within noise for one stock and one morning.
+- **Rebates wouldn't save it:** Nasdaq's maker rebate is a fraction of a cent per share, well short of the roughly 1 cent per share lost to adverse selection.
+- **Full day (09:31–16:00 ET), same settings:**
+
+| Latency | Fills | Shares traded | P&L | Markout (cents/share): 0 | 100 ms | 1 s | 10 s | 60 s |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 8,140 | 468.5 K | −$3,796 | +0.55 | −0.42 | −0.65 | −0.85 | −1.01 |
+| 50 µs | 8,111 | 469.8 K | −$3,366 | +0.50 | −0.50 | −0.75 | −1.01 | −1.00 |
+| 1 ms | 8,618 | 509.2 K | −$5,046 | +0.30 | −0.68 | −0.92 | −1.17 | −1.21 |
+
+  Same picture as the morning: about half a spread at the fill, turned into a loss of roughly a cent per share within seconds; 1 ms is clearly the worst. P&L is close to shares × 10 s markout (for 0 µs: −$3,969 vs −$3,796), the rest being inventory held longer.
+- **This is the baseline.** Milestones 5 and 6 are measured against it: the question is how much of that −1 cent each idea (skew, wider quotes, pulling on a trend signal) recovers.
+
+### D28. Inventory is valued at the mid when quoting ends
+
+- **Bug found on the full day:** P&L first marked inventory at the last mid of the file. After 16:00 the book thins out until every order is gone at the end of after-hours, and the last two-sided mid was about $300.63 for a stock that closed near $291. The implied mark gave it away. Morning-only runs were unaffected (their last mid was during regular hours).
+- **Fix:** mark at the mid in force at `end_ns` (16:00), when quoting stops. A test reproduces the case: a far-away quote after the end must not move the P&L.
+- **Lesson:** check results against something outside the code (here, the known closing price). The tests passed; the number was still wrong.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -255,4 +293,5 @@ ctest --preset debug
 cmake --preset release && cmake --build --preset release
 ./build/release/cpp/itch_stats data/itch/12302019.NASDAQ_ITCH50
 ./build/release/cpp/itch_replay data/itch/12302019.NASDAQ_ITCH50 AAPL QQQ MSFT
+./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50   # latency in µs
 ```

@@ -26,6 +26,12 @@ struct ReplayStats {
   std::uint64_t crossed_not_trading = 0;
 };
 
+// One unexpected cross (while trading), for investigation.
+struct CrossEvent {
+  std::uint16_t locate;
+  std::uint64_t timestamp_ns;
+};
+
 class Replayer {
  public:
   Replayer();
@@ -38,6 +44,9 @@ class Replayer {
   // "AAPL" for 13, trailing spaces removed; "" if no 'R' message named that locate.
   [[nodiscard]] std::string symbol_of(std::uint16_t locate) const;
   [[nodiscard]] const ReplayStats& stats() const { return stats_; }
+  // Crosses while trading, in order; capped (kMaxCrossEvents) so a broken replay can't
+  // eat memory, while the counter in stats() keeps counting past the cap.
+  [[nodiscard]] const std::vector<CrossEvent>& cross_events() const { return cross_events_; }
 
  private:
   // One book per possible locate (a 2-byte number, so 65,536), created once and never
@@ -49,6 +58,7 @@ class Replayer {
   // we assume matching is on, so a cross counts as an error. The strict default.
   std::vector<char> state_;
   ReplayStats stats_;
+  std::vector<CrossEvent> cross_events_;
 
   // E, C and X all shrink an order in place; one function counts the outcome.
   void reduce(std::uint16_t locate, OrderId id, Quantity qty);

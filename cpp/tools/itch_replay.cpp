@@ -86,6 +86,10 @@ int main(int argc, char* argv[]) {
     std::cout << "   (first: " << replay.symbol_of(s.first_cross_locate) << " at "
               << clock_text(s.first_cross_ns) << ")";
   }
+  for (std::size_t i = 0; i < replay.cross_events().size() && i < 20; ++i) {
+    const ob::CrossEvent& e = replay.cross_events()[i];
+    std::cout << "\n    cross: " << replay.symbol_of(e.locate) << " at " << clock_text(e.timestamp_ns);
+  }
   std::cout << "\ncrossed, halted:  " << s.crossed_not_trading
             << "   (expected: no matching while halted / paused)";
   std::cout << "\nresting orders:   " << resting << " at the end\n"

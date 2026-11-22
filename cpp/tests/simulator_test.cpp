@@ -122,6 +122,20 @@ TEST(SimulatorTest, OpenInventoryIsMarkedAtTheMid) {
   EXPECT_DOUBLE_EQ(sim.pnl_dollars(), 0.05);
 }
 
+// After quoting stops, the book can thin out (after-hours) and its mid stop meaning
+// anything. Inventory is valued at the mid when quoting ended, not at the last mid.
+TEST(SimulatorTest, PnlIsMarkedAtTheEndOfQuoting) {
+  SimConfig c = config();
+  c.end_ns = 5000;
+  Simulator sim(c);
+  open_market(sim, 1000);                               // mid 1.0005
+  feed(sim, add(kAapl, 3, 'B', 100, 10'000, 2000));
+  feed(sim, executed(kAapl, 3, 100, 3000));             // long 100 at 1.0000
+  feed(sim, deleted(kAapl, 2, 6000));                   // after the end: the ask goes...
+  feed(sim, add(kAapl, 5, 'S', 100, 12'000, 7000));     // ...and a far ask makes mid 1.1000
+  EXPECT_DOUBLE_EQ(sim.pnl_dollars(), 0.05);            // still marked at 1.0005
+}
+
 // At the limit, stop quoting the side that would add to the position.
 TEST(SimulatorTest, InventoryLimitPullsTheBid) {
   SimConfig c = config();
@@ -144,6 +158,20 @@ TEST(SimulatorTest, RequotesAfterAFullFill) {
   ASSERT_TRUE(sim.bid().has_value());
   EXPECT_EQ(sim.bid()->remaining, 100u);
   EXPECT_EQ(shares_ahead(sim.replay().book(kAapl), *sim.bid()), 100u);  // behind #1 again
+}
+
+// --- the mid series ------------------------------------------------------------------
+
+TEST(SimulatorTest, RecordsTheMidOnlyWhenItChanges) {
+  Simulator sim(config());
+  open_market(sim, 1000);                               // mid 1.0005 (x2 = 20'010)
+  feed(sim, add(kAapl, 3, 'B', 100, 10'000, 2000));     // same best prices: no new point
+  feed(sim, add(kAapl, 4, 'B', 100, 10'002, 3000));     // better bid: mid 1.0006
+  ASSERT_EQ(sim.mids().size(), 2u);
+  EXPECT_EQ(sim.mids()[0].timestamp_ns, 1000u);
+  EXPECT_EQ(sim.mids()[0].mid_x2, 20'010);
+  EXPECT_EQ(sim.mids()[1].timestamp_ns, 3000u);
+  EXPECT_EQ(sim.mids()[1].mid_x2, 20'012);
 }
 
 // --- latency -------------------------------------------------------------------------

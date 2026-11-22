@@ -5,6 +5,7 @@ namespace ob {
 namespace {
 
 constexpr std::size_t kLocates = 65'536;  // every value a 2-byte stock locate can take
+constexpr std::size_t kMaxCrossEvents = 10'000;  // plenty to investigate, bounded memory
 
 }  // namespace
 
@@ -139,6 +140,9 @@ void Replayer::check_crossed(std::uint16_t locate, std::uint64_t timestamp_ns) {
       stats_.first_cross_ns = timestamp_ns;
     }
     ++stats_.crossed;
+    if (cross_events_.size() < kMaxCrossEvents) {
+      cross_events_.push_back(CrossEvent{.locate = locate, .timestamp_ns = timestamp_ns});
+    }
   }
 }
 

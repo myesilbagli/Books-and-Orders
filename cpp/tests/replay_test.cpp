@@ -136,6 +136,11 @@ TEST(ReplayTest, CrossedBookIsDetected) {
   EXPECT_EQ(r.stats().crossed, 1u);
   EXPECT_EQ(r.stats().first_cross_locate, 13u);
   EXPECT_EQ(r.stats().first_cross_ns, 5555u);
+
+  // Every cross while trading is also logged, to investigate them all, not just the first.
+  ASSERT_EQ(r.cross_events().size(), 1u);
+  EXPECT_EQ(r.cross_events()[0].locate, 13u);
+  EXPECT_EQ(r.cross_events()[0].timestamp_ns, 5555u);
 }
 
 // Bid == ask (a locked book) is just as impossible, so it counts too.
@@ -155,6 +160,7 @@ TEST(ReplayTest, CrossWhileHaltedIsCountedSeparately) {
   feed(r, add(13, 2, 'S', 100, 10'000));
   EXPECT_EQ(r.stats().crossed, 0u);
   EXPECT_EQ(r.stats().crossed_not_trading, 1u);
+  EXPECT_TRUE(r.cross_events().empty());  // expected crosses aren't logged
 }
 
 // Paused (LULD) and quotation-only don't match either.

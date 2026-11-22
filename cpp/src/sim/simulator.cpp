@@ -102,7 +102,11 @@ void Simulator::requote(std::uint64_t now_ns) {
   const bool open = now_ns >= config_.start_ns && now_ns < config_.end_ns && best_bid &&
                     best_ask && *best_bid < *best_ask;
   if (best_bid && best_ask && *best_bid < *best_ask) {
-    last_mid_x2_ = *best_bid + *best_ask;
+    const Price mid_x2 = *best_bid + *best_ask;
+    if (mid_x2 != last_mid_x2_) {  // only changes: a quiet mid adds nothing to the series
+      mids_.push_back(MidPoint{.timestamp_ns = now_ns, .mid_x2 = mid_x2});
+      last_mid_x2_ = mid_x2;
+    }
   }
 
   // Don't send a quote whose fill could take the position past the limit.
@@ -130,8 +134,11 @@ void Simulator::decide(QuoteSide& q, std::optional<Price> target, std::uint64_t 
 
 double Simulator::pnl_dollars() const {
   // cash + inventory x mid, with mid = (bid + ask) / 2 kept as 2 x mid to stay exact.
-  // No mid yet means we never quoted, so inventory is 0 and the 0 default doesn't matter.
-  const std::int64_t mid_x2 = last_mid_x2_.value_or(0);
+  // Value inventory at the mid in force when quoting ended (or now, if it hasn't ended
+  // yet). The last mid of the day is no good: after hours the book thins out and the mid
+  // of a few scattered orders can be far from any real price.
+  // No mid at all means we never quoted, so inventory is 0 and the 0 default doesn't matter.
+  const std::int64_t mid_x2 = mid_x2_at(mids_, config_.end_ns).value_or(0);
   const double ticks = static_cast<double>(2 * cash_ + inventory_ * mid_x2) / 2.0;
   return ticks / 10'000.0;  // ticks are $0.0001
 }
