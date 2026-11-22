@@ -26,7 +26,8 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Simulator: virtual order queue position + fill rules | `cpp/include/orderbook/sim/queue.hpp`, `cpp/src/sim/queue.cpp` | done (4a) |
 | Simulator loop: naive strategy, latency, requoting, fills, P&L | `cpp/include/orderbook/sim/simulator.hpp`, `cpp/src/sim/simulator.cpp` | done (4b) |
 | Markouts + `mm_sim` tool; first simulation on real data | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/markout.cpp`, `cpp/tools/mm_sim.cpp` | done (4c), full day (D27) |
-| Quoting strategy, markouts, P&L attribution | — | milestone 5 |
+| Volatility estimator (sigma^2 for Avellaneda-Stoikov) | `cpp/include/orderbook/sim/volatility.hpp`, `cpp/src/sim/volatility.cpp` | done (5a) |
+| Quoting strategy (Avellaneda-Stoikov), P&L attribution | — | milestone 5 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -278,6 +279,25 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Bug found on the full day:** P&L first marked inventory at the last mid of the file. After 16:00 the book thins out until every order is gone at the end of after-hours, and the last two-sided mid was about $300.63 for a stock that closed near $291. The implied mark gave it away. Morning-only runs were unaffected (their last mid was during regular hours).
 - **Fix:** mark at the mid in force at `end_ns` (16:00), when quoting stops. A test reproduces the case: a far-away quote after the end must not move the P&L.
 - **Lesson:** check results against something outside the code (here, the known closing price). The tests passed; the number was still wrong.
+
+### D29. Volatility: squared mid changes on a fixed clock grid
+
+- **What:** sample the mid every `interval` (aligned to whole intervals since midnight), take the squared change between grid points, average over the last `window` intervals, scale to one second. Units: ticks² per second, the sigma² that Avellaneda-Stoikov multiplies by inventory and time.
+- **Mean assumed zero:** over seconds the drift is tiny next to the noise; estimating it would add error, not remove it.
+- **Quiet time counts:** a grid point with no change since the last one is a zero, not a gap to skip. Otherwise a calm market would look as volatile as its few moves.
+- **Rolling window over EWMA:** a deque plus running sum gives exact, easy-to-test numbers and a clear meaning ("the last 5 minutes"). EWMA (RiskMetrics) needs no buffer and reacts smoothly, but its decay is harder to reason about. Either works; this is the simpler one to defend.
+- **AAPL, 30 Dec 2019, 09:31-16:00 (149.5 K mid changes):**
+
+  | grid | sigma (cents / √s) | implied 6.5 h move |
+  |---|---|---|
+  | 10 ms | 1.87 | $2.86 |
+  | 100 ms | 1.89 | $2.89 |
+  | 1 s | 2.00 | $3.06 |
+  | 10 s | 2.15 | $3.29 |
+  | 60 s | 2.13 | $3.25 |
+
+  About 1.1 % of a ~$290 stock for the day: a plausible daily volatility for AAPL then (external check). The 5-minute estimate falls through the day, from 2.9 cents/√s at 10:00 to 1.1-1.2 after 15:00: the usual intraday pattern, busy morning, calm afternoon.
+- **Surprise (signature plot):** variance per second *rises* with the sampling interval and levels off around 10 s. Trade prices usually show the opposite (bid-ask bounce inflates short intervals). For the mid, short intervals see the price move in small steps in the same direction (positive autocorrelation: quotes catch up gradually), so they underestimate. Short grids read about 15 % low against 10 s. The interval is a parameter; it gets picked with the strategy (5c), matched to how long we hold inventory.
 
 ## Build
 
