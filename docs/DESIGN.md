@@ -6,6 +6,8 @@ A limit order book and matching engine in C++20 (`cpp/`), and on top of it a mar
 
 Build a market-making model that uses discretionary market reading (trend days vs range days) as a signal, and test it honestly: replay real Nasdaq ITCH days order by order, put the strategy's quotes into the real queue, and count a fill only when the queue ahead of it is used up. Success is measured with markouts and a P&L split into spread captured, adverse selection and inventory.
 
+What has come out so far, on one page: [RESULTS.md](RESULTS.md).
+
 Why this order: the simulator is only as honest as the book underneath it. Most retail backtests assume a fill the moment price touches a level; a queue-aware replay is what removes that bias.
 
 ## Components
@@ -521,4 +523,7 @@ research/.venv/bin/python -m unittest discover -s research
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 0 data/sim/ci/naive_0us.csv
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 0 data/sim/ci/as10_0us.csv --as 1.0
 research/.venv/bin/python research/bootstrap.py data/sim/ci/naive_0us.csv data/sim/ci/as10_0us.csv   # first = baseline
+
+# every milestone 5 number in docs/RESULTS.md: 7 runs in parallel + bootstrap tables
+research/run_m5.sh data/itch/12302019.NASDAQ_ITCH50   # writes data/sim/m5/
 ```
