@@ -24,8 +24,8 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Replay: one book per stock (by locate) + problem counters | `cpp/include/orderbook/replay.hpp`, `cpp/src/replay.cpp` | done |
 | Real-day replay run (`itch_replay`): checks + speed | `cpp/tools/itch_replay.cpp` | done on 04:00–10:15 ET; full day pending download |
 | Simulator: virtual order queue position + fill rules | `cpp/include/orderbook/sim/queue.hpp`, `cpp/src/sim/queue.cpp` | done (4a) |
-| Simulator loop: strategy, latency, requoting, fill log | — | milestone 4b, next |
-| First simulation on real data, markouts | — | milestone 4c |
+| Simulator loop: naive strategy, latency, requoting, fills, P&L | `cpp/include/orderbook/sim/simulator.hpp`, `cpp/src/sim/simulator.cpp` | done (4b) |
+| First simulation on real data, markouts | — | milestone 4c, next |
 | Quoting strategy, markouts, P&L attribution | — | milestone 5 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
@@ -230,6 +230,16 @@ On the first 1.6 GB of 30 Dec 2019 (04:00 to 10:15 ET), release build, warm page
 - **Fill rule, checked before the book applies each execution:** we are filled when the aggressor got past us, meaning it traded (a) an order on our side and price that is behind us, or (b) our side at a worse price (a seller below our bid, a buyer above our ask). Each execution fills at most its own size: the shares that went to the order behind us would have come to us instead.
 - **Not used for fills:** executions ahead of us (they just move us up), executions at a better price than ours, executions on the other side.
 - **Book additions for this:** `find(id)` (read an order before an execution changes it), `next_sequence()`, and `volume_ahead(side, price, seq)`, which stops at the first later order because a level is in arrival order.
+
+### D25. The simulator loop: look, apply, decide; latency on every action
+
+- **Per message:** (1) quotes and pulls that have reached the exchange by this message's time go live; if the message executes an order in our stock, check our quotes against it *before* the book changes (the order may be removed); (2) the replay applies the message; (3) if it was our stock, the strategy decides where to quote.
+- **No callback needed:** the simulator sees each message before the replay does, so it decodes `E`/`C` once more itself (a few ns) instead of the replay calling back into it. A callback or handler (D15) would be more flexible; this is simpler and needs no new language feature.
+- **Latency applies to new quotes and pulls alike.** A change decided at `t` takes effect at `t + latency`; until then the old quote stays live and can still be filled. That is how a stale quote gets *picked off*: the price moves, we decide to follow, and in the meantime someone trades through our old price. Tested both ways (with and without latency) on the same message sequence.
+- **Don't resend what's already on its way:** if the target equals where we're heading (pending, else live), do nothing. Resending would throw away queue position.
+- **Naive strategy on purpose:** join the best bid and ask with a fixed size, follow them, pull a side at the inventory limit, quote only inside set hours and only in a two-sided, uncrossed market. It's the baseline later strategies are measured against.
+- **Accounting:** inventory in shares; cash in ticks × shares (exact integers); P&L marks inventory at the latest mid, kept as `bid + ask` (twice the mid) so it stays an integer until the final conversion to dollars.
+- **Not modelled yet:** exchange fees and maker rebates; fills from hidden (`P`) executions; auction (cross) mechanics, since `C` executions are treated like `E`.
 
 ## Build
 

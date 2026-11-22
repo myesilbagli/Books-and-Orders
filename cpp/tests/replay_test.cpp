@@ -1,93 +1,16 @@
 #include "orderbook/replay.hpp"
 
+#include "itch_builders.hpp"
+
 #include <gtest/gtest.h>
 
-#include <cstdint>
-#include <cstring>
 #include <vector>
 
 namespace ob {
 namespace {
 
+using namespace itch_test;  // message builders: add(), executed(), deleted(), ...
 using Ids = std::vector<OrderId>;
-using Bytes = std::vector<std::uint8_t>;
-
-// --- packet builders (same byte layouts as the decoder tests) ---------------------
-
-void put_be(Bytes& b, std::size_t at, std::uint64_t v, std::size_t n) {
-  for (std::size_t i = 0; i < n; ++i) {
-    b[at + n - 1 - i] = static_cast<std::uint8_t>(v >> (8 * i));
-  }
-}
-
-Bytes message(char type, std::size_t len, std::uint16_t locate, std::uint64_t ts = 1000) {
-  Bytes b(len, 0);
-  b[0] = static_cast<std::uint8_t>(type);
-  put_be(b, 1, locate, 2);
-  put_be(b, 5, ts, 6);
-  return b;
-}
-
-Bytes directory(std::uint16_t locate, const char* symbol) {
-  Bytes b = message('R', 39, locate);
-  for (std::size_t i = 0; i < 8; ++i) {
-    b[11 + i] = static_cast<std::uint8_t>(i < std::strlen(symbol) ? symbol[i] : ' ');
-  }
-  return b;
-}
-
-Bytes add(std::uint16_t locate, OrderId ref, char side, Quantity qty, Price price,
-          std::uint64_t ts = 1000) {
-  Bytes b = message('A', 36, locate, ts);
-  put_be(b, 11, ref, 8);
-  b[19] = static_cast<std::uint8_t>(side);
-  put_be(b, 20, qty, 4);
-  put_be(b, 32, static_cast<std::uint64_t>(price), 4);
-  return b;
-}
-
-Bytes executed(std::uint16_t locate, OrderId ref, Quantity qty) {
-  Bytes b = message('E', 31, locate);
-  put_be(b, 11, ref, 8);
-  put_be(b, 19, qty, 4);
-  return b;
-}
-
-Bytes executed_with_price(std::uint16_t locate, OrderId ref, Quantity qty) {
-  Bytes b = message('C', 36, locate);
-  put_be(b, 11, ref, 8);
-  put_be(b, 19, qty, 4);
-  b[31] = 'Y';
-  return b;
-}
-
-Bytes cancelled(std::uint16_t locate, OrderId ref, Quantity qty) {
-  Bytes b = message('X', 23, locate);
-  put_be(b, 11, ref, 8);
-  put_be(b, 19, qty, 4);
-  return b;
-}
-
-Bytes deleted(std::uint16_t locate, OrderId ref) {
-  Bytes b = message('D', 19, locate);
-  put_be(b, 11, ref, 8);
-  return b;
-}
-
-Bytes replaced(std::uint16_t locate, OrderId old_ref, OrderId new_ref, Quantity qty, Price price) {
-  Bytes b = message('U', 35, locate);
-  put_be(b, 11, old_ref, 8);
-  put_be(b, 19, new_ref, 8);
-  put_be(b, 27, qty, 4);
-  put_be(b, 31, static_cast<std::uint64_t>(price), 4);
-  return b;
-}
-
-Bytes trading_action(std::uint16_t locate, char state) {
-  Bytes b = message('H', 25, locate);
-  b[19] = static_cast<std::uint8_t>(state);
-  return b;
-}
 
 // Not named apply: Bytes is a std::vector, so the compiler would also consider std::apply.
 void feed(Replayer& r, const Bytes& b) { r.apply(b.data(), b.size()); }
