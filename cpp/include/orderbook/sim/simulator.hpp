@@ -3,6 +3,7 @@
 #include "orderbook/replay.hpp"
 #include "orderbook/sim/markout.hpp"
 #include "orderbook/sim/queue.hpp"
+#include "orderbook/sim/strategy.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -20,9 +21,9 @@
 //              exchange `latency_ns` later; until then the old quote stays live and can
 //              still be filled.
 //
-// The strategy is deliberately naive: join the best bid and best ask with a fixed size,
-// follow them when they move, stop adding to a position at the inventory limit. It's the
-// baseline the real strategies (milestones 5 and 6) will be measured against.
+// Where to quote is the Strategy's call (strategy.hpp); without one, NaiveStrategy joins
+// the best bid and ask. The simulator keeps the rules no strategy may break: quoting
+// hours, a two-sided market, the inventory limit, and never improving on the best price.
 
 namespace ob::sim {
 
@@ -37,7 +38,15 @@ struct SimConfig {
 
 class Simulator {
  public:
-  explicit Simulator(const SimConfig& config) : config_(config) {}
+  // With the naive strategy (the milestone 4 baseline).
+  explicit Simulator(const SimConfig& config) : config_(config), strategy_(&naive_) {}
+  // With any strategy. It's used by reference, not copied: it must outlive the simulator.
+  Simulator(const SimConfig& config, Strategy& strategy)
+      : config_(config), strategy_(&strategy) {}
+
+  // A copy's strategy_ could point at the original's naive_, which may be gone.
+  Simulator(const Simulator&) = delete;
+  Simulator& operator=(const Simulator&) = delete;
 
   // One message, as handed out by ItchReader. Every message of every stock goes through
   // here, so all books stay correct and time keeps moving.
@@ -76,6 +85,8 @@ class Simulator {
   std::int64_t inventory_ = 0;
   std::int64_t cash_ = 0;
   std::optional<Price> last_mid_x2_;  // bid + ask: twice the mid, so it stays an integer
+  NaiveStrategy naive_;               // used when no strategy is given
+  Strategy* strategy_;                // a pointer, not a reference, so it can point at naive_
 
   void activate(QuoteSide& q, std::uint64_t now_ns);
   void check_fill(QuoteSide& q, const Order& executed, Quantity shares, std::uint64_t now_ns);

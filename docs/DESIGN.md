@@ -27,6 +27,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Simulator loop: naive strategy, latency, requoting, fills, P&L | `cpp/include/orderbook/sim/simulator.hpp`, `cpp/src/sim/simulator.cpp` | done (4b) |
 | Markouts + `mm_sim` tool; first simulation on real data | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/markout.cpp`, `cpp/tools/mm_sim.cpp` | done (4c), full day (D27) |
 | Volatility estimator (sigma^2 for Avellaneda-Stoikov) | `cpp/include/orderbook/sim/volatility.hpp`, `cpp/src/sim/volatility.cpp` | done (5a) |
+| Strategy interface + naive strategy, split from the simulator | `cpp/include/orderbook/sim/strategy.hpp` | done (5b) |
 | Quoting strategy (Avellaneda-Stoikov), P&L attribution | — | milestone 5 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
@@ -298,6 +299,14 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 
   About 1.1 % of a ~$290 stock for the day: a plausible daily volatility for AAPL then (external check). The 5-minute estimate falls through the day, from 2.9 cents/√s at 10:00 to 1.1-1.2 after 15:00: the usual intraday pattern, busy morning, calm afternoon.
 - **Surprise (signature plot):** variance per second *rises* with the sampling interval and levels off around 10 s. Trade prices usually show the opposite (bid-ask bounce inflates short intervals). For the mid, short intervals see the price move in small steps in the same direction (positive autocorrelation: quotes catch up gradually), so they underestimate. Short grids read about 15 % low against 10 s. The interval is a parameter; it gets picked with the strategy (5c), matched to how long we hold inventory.
+
+### D30. The strategy is a separate, swappable object; the simulator keeps the rules
+
+- **Split:** the simulator owns the mechanics (latency, queue position, fills, accounting, the mid series). A `Strategy` only answers "where do I want my bid and ask?" given a `MarketView` (time, best bid and ask, shares resting at each, our inventory). Same car, different drivers: that's what makes strategy comparisons fair.
+- **Asked on every two-sided message of our stock, also before 09:31,** so a strategy can warm up (the volatility window needs 5 minutes of data before it answers). Outside hours the answer is ignored.
+- **Rules no strategy can break:** quoting hours, a two-sided uncrossed market, the inventory limit, positive prices, and **never better than the touch** (a bid above the best bid is moved down to it, an ask below the best ask up to it). A price inside the spread is one nobody in the real data saw; other traders would have reacted to it and the replay can't say how. Clamping also keeps us passive: our bid can never reach the ask and trade.
+- **Run-time choice (`virtual`) over compile-time (template):** an abstract base class with one pure virtual function is the clearest way to swap strategies, and the indirect call costs nanoseconds on a path that already takes ~190 ns per message. **Later (optimization milestone):** make the simulator a template on the strategy type, so the call can be inlined, and measure the difference with Google Benchmark.
+- **Refactor check:** the 16 existing simulator tests pass unchanged, and the full-day fills files at 0, 50 and 1000 µs are byte-identical to the ones from before the split (D27 numbers unchanged).
 
 ## Build
 

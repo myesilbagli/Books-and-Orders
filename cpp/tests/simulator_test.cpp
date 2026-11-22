@@ -214,5 +214,123 @@ TEST(SimulatorTest, NewQuoteWaitsForLatency) {
   EXPECT_TRUE(sim.bid().has_value());
 }
 
+// --- the strategy --------------------------------------------------------------------
+
+// A strategy for tests: answers whatever `quotes` holds and remembers what it was shown.
+class FixedStrategy final : public Strategy {
+ public:
+  Quotes quotes;
+  std::optional<MarketView> last_view;
+  int calls = 0;
+
+  Quotes quote(const MarketView& view) override {
+    last_view = view;
+    ++calls;
+    return quotes;
+  }
+};
+
+TEST(StrategyTest, NaiveStrategyJoinsTheTouch) {
+  NaiveStrategy naive;
+  const Quotes q = naive.quote(MarketView{.now_ns = 0,
+                                          .best_bid = 10'000,
+                                          .best_ask = 10'010,
+                                          .bid_size = 100,
+                                          .ask_size = 100,
+                                          .inventory = 0});
+  EXPECT_EQ(q.bid, 10'000);
+  EXPECT_EQ(q.ask, 10'010);
+}
+
+TEST(StrategyTest, SeesTheMarketAndOurInventory) {
+  FixedStrategy s;
+  s.quotes = {.bid = 10'000, .ask = 10'010};
+  Simulator sim(config(), s);
+  open_market(sim, 1000);
+  feed(sim, add(kAapl, 3, 'B', 200, 10'000, 2000));  // behind us
+  feed(sim, executed(kAapl, 3, 100, 3000));          // fills our bid: long 100
+
+  ASSERT_TRUE(s.last_view.has_value());
+  EXPECT_EQ(s.last_view->now_ns, 3000u);
+  EXPECT_EQ(s.last_view->best_bid, 10'000);
+  EXPECT_EQ(s.last_view->best_ask, 10'010);
+  EXPECT_EQ(s.last_view->bid_size, 200u);  // #1 100 + #3's remaining 100; we're not in it
+  EXPECT_EQ(s.last_view->ask_size, 100u);
+  EXPECT_EQ(s.last_view->inventory, 100);
+}
+
+TEST(StrategyTest, CanQuoteBehindTheTouch) {
+  FixedStrategy s;
+  s.quotes = {.bid = 9'998, .ask = 10'012};
+  Simulator sim(config(), s);
+  open_market(sim);
+  ASSERT_TRUE(sim.bid().has_value() && sim.ask().has_value());
+  EXPECT_EQ(sim.bid()->price, 9'998);
+  EXPECT_EQ(sim.ask()->price, 10'012);
+}
+
+// Inside the spread we'd be a price nobody in the real data reacted to (D30): the
+// simulator moves such quotes back to the touch.
+TEST(StrategyTest, NeverImprovesOnTheTouch) {
+  FixedStrategy s;
+  s.quotes = {.bid = 10'005, .ask = 10'005};
+  Simulator sim(config(), s);
+  open_market(sim);
+  ASSERT_TRUE(sim.bid().has_value() && sim.ask().has_value());
+  EXPECT_EQ(sim.bid()->price, 10'000);
+  EXPECT_EQ(sim.ask()->price, 10'010);
+}
+
+TEST(StrategyTest, EmptySideMeansNoQuote) {
+  FixedStrategy s;
+  s.quotes = {.bid = std::nullopt, .ask = 10'010};
+  Simulator sim(config(), s);
+  open_market(sim);
+  EXPECT_FALSE(sim.bid().has_value());
+  EXPECT_TRUE(sim.ask().has_value());
+}
+
+TEST(StrategyTest, NonPositivePriceIsNotQuoted) {
+  FixedStrategy s;
+  s.quotes = {.bid = 0, .ask = 10'010};
+  Simulator sim(config(), s);
+  open_market(sim);
+  EXPECT_FALSE(sim.bid().has_value());
+}
+
+// The inventory limit is the simulator's, not the strategy's to lift.
+TEST(StrategyTest, InventoryLimitOverridesTheStrategy) {
+  FixedStrategy s;
+  s.quotes = {.bid = 10'000, .ask = 10'010};
+  SimConfig c = config();
+  c.max_inventory = 100;
+  Simulator sim(c, s);
+  open_market(sim);
+  feed(sim, add(kAapl, 3, 'B', 100, 10'000));
+  feed(sim, executed(kAapl, 3, 100));
+  EXPECT_EQ(sim.inventory(), 100);
+  EXPECT_FALSE(sim.bid().has_value());
+  EXPECT_TRUE(sim.ask().has_value());
+}
+
+// Before quoting starts the strategy is still asked (to warm up), but nothing is quoted.
+TEST(StrategyTest, AskedBeforeHoursButNotQuoted) {
+  FixedStrategy s;
+  s.quotes = {.bid = 10'000, .ask = 10'010};
+  SimConfig c = config();
+  c.start_ns = 5000;
+  Simulator sim(c, s);
+  open_market(sim, 1000);
+  EXPECT_GT(s.calls, 0);
+  EXPECT_FALSE(sim.bid().has_value());
+}
+
+TEST(StrategyTest, NotAskedWithoutATwoSidedMarket) {
+  FixedStrategy s;
+  Simulator sim(config(), s);
+  feed(sim, add(kAapl, 1, 'B', 100, 10'000));
+  EXPECT_EQ(s.calls, 0);
+}
+
 }  // namespace
 }  // namespace ob::sim

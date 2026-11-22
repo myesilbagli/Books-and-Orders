@@ -3,6 +3,8 @@
 #include "orderbook/itch/bytes.hpp"
 #include "orderbook/itch/messages.hpp"
 
+#include <algorithm>
+
 namespace ob::sim {
 
 void Simulator::on_message(const std::uint8_t* p, std::size_t len) {
@@ -98,24 +100,46 @@ void Simulator::requote(std::uint64_t now_ns) {
   const auto best_bid = book.best_bid();
   const auto best_ask = book.best_ask();
 
-  // Quote only inside our hours, and only into a normal two-sided market.
-  const bool open = now_ns >= config_.start_ns && now_ns < config_.end_ns && best_bid &&
-                    best_ask && *best_bid < *best_ask;
+  std::optional<Price> bid_target;
+  std::optional<Price> ask_target;
+
+  // Only a normal two-sided market has a mid, and only then is the strategy asked.
   if (best_bid && best_ask && *best_bid < *best_ask) {
     const Price mid_x2 = *best_bid + *best_ask;
     if (mid_x2 != last_mid_x2_) {  // only changes: a quiet mid adds nothing to the series
       mids_.push_back(MidPoint{.timestamp_ns = now_ns, .mid_x2 = mid_x2});
       last_mid_x2_ = mid_x2;
     }
+
+    // Asked even outside our hours, so a strategy can warm up; the answer is used below
+    // only inside them.
+    const MarketView view{.now_ns = now_ns,
+                          .best_bid = *best_bid,
+                          .best_ask = *best_ask,
+                          .bid_size = book.volume_at(Side::Buy, *best_bid),
+                          .ask_size = book.volume_at(Side::Sell, *best_ask),
+                          .inventory = inventory_};
+    const Quotes wanted = strategy_->quote(view);
+
+    const bool open = now_ns >= config_.start_ns && now_ns < config_.end_ns;
+    // Don't send a quote whose fill could take the position past the limit.
+    const auto size = static_cast<std::int64_t>(config_.quote_size);
+    const bool may_buy = inventory_ + size <= config_.max_inventory;
+    const bool may_sell = inventory_ - size >= -config_.max_inventory;
+
+    // Never better than the touch: a price inside the spread is one nobody in the real
+    // data saw or reacted to, so the replay couldn't tell what would have happened (D30).
+    // This also keeps us passive: a bid can never reach the ask and trade.
+    if (open && may_buy && wanted.bid && *wanted.bid > 0) {
+      bid_target = std::min(*wanted.bid, *best_bid);
+    }
+    if (open && may_sell && wanted.ask && *wanted.ask > 0) {
+      ask_target = std::max(*wanted.ask, *best_ask);
+    }
   }
 
-  // Don't send a quote whose fill could take the position past the limit.
-  const auto size = static_cast<std::int64_t>(config_.quote_size);
-  const bool may_buy = inventory_ + size <= config_.max_inventory;
-  const bool may_sell = inventory_ - size >= -config_.max_inventory;
-
-  decide(bid_, open && may_buy ? best_bid : std::nullopt, now_ns);
-  decide(ask_, open && may_sell ? best_ask : std::nullopt, now_ns);
+  decide(bid_, bid_target, now_ns);
+  decide(ask_, ask_target, now_ns);
 }
 
 void Simulator::decide(QuoteSide& q, std::optional<Price> target, std::uint64_t now_ns) {
