@@ -29,7 +29,8 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Volatility estimator (sigma^2 for Avellaneda-Stoikov) | `cpp/include/orderbook/sim/volatility.hpp`, `cpp/src/sim/volatility.cpp` | done (5a) |
 | Strategy interface + naive strategy, split from the simulator | `cpp/include/orderbook/sim/strategy.hpp` | done (5b) |
 | Avellaneda-Stoikov strategy + `mm_sim --as` | `cpp/include/orderbook/sim/avellaneda_stoikov.hpp`, `cpp/src/sim/avellaneda_stoikov.cpp` | done (5c), full day (D31) |
-| Microprice, P&L attribution | — | milestone 5 (5d, 5e) |
+| Queue-imbalance study + `imbalance_study` tool | `cpp/include/orderbook/sim/imbalance.hpp`, `cpp/src/sim/imbalance.cpp`, `cpp/tools/imbalance_study.cpp` | done (5d-a), D32 |
+| Microprice in the strategy, P&L attribution | — | milestone 5 (5d-b, 5e) |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -56,6 +57,7 @@ The book holds only **displayed** orders. Nasdaq ITCH does not publish hidden, m
 - **What it misses:** a move that starts on another venue can reach Nasdaq's book after it has already traded elsewhere (adverse selection we can't see coming), and real market makers quote on many venues at once (routing, inter-venue latency, Reg NMS order protection). Multi-venue simulation is out of scope.
 - **Hidden liquidity:** see Data flow above. Non-displayed orders only appear when they trade (`P` messages), so fills are slightly optimistic.
 - **Plan for the signal (milestone 6):** trend vs range labels and order-flow features come from **consolidated** data (all venues' trades and best prices), which is much smaller and cheaper than order-by-order data. The quotes themselves are still simulated on Nasdaq's book.
+- **One development day, in-sample results (decided 22 Nov 2026).** Everything so far runs on 30 Dec 2019, a quiet holiday-week day, and some choices were made by looking at it (H = 10 s, the reference variance). Results on it are in-sample: they show the system works and what each piece does, not that a strategy makes money. Milestone 5 builds the system; making it profitable comes after, and is checked on days held out until then (Nasdaq's public folder has 14 more days, 2018-2020; Databento for more), with confidence intervals on every comparison.
 
 ## Decisions
 
@@ -309,7 +311,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Run-time choice (`virtual`) over compile-time (template):** an abstract base class with one pure virtual function is the clearest way to swap strategies, and the indirect call costs nanoseconds on a path that already takes ~190 ns per message. **Later (optimization milestone):** make the simulator a template on the strategy type, so the call can be inlined, and measure the difference with Google Benchmark.
 - **Refactor check:** the 16 existing simulator tests pass unchanged, and the full-day fills files at 0, 50 and 1000 µs are byte-identical to the ones from before the split (D27 numbers unchanged).
 
-### D31. Avellaneda-Stoikov, adapted to a one-tick market
+### D31. Avellaneda-Stoikov, adapted to quoting only at or behind the touch
 
 - **Formula (ticks):** risk = γ·σ²·H; reservation = mid − q·risk; half spread = base + risk/2; bid/ask = reservation ∓ half spread, rounded to the nearest cent. The simulator then holds both at or behind the touch (D30).
 - **Choices:**
@@ -320,7 +322,8 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - **Nearest-cent rounding:** always rounding bids down and asks up would step back from the touch whenever the widening is a fraction of a cent, even when flat.
   - **No quotes until σ² is ready.** In practice it's ready long before 09:31 (the strategy is asked from the first two-sided book).
   - **γ is set by "cents of lean per lot at average volatility"** (`mm_sim --as 0.2`), using AAPL's day-average σ² = 40,000 ticks²/s, so runs are comparable without thinking in units of 1/tick.
-- **What it becomes on AAPL:** the spread is one tick and we never improve on the touch, so leaning can't make the ask more aggressive when long. The only effect is stepping the bid (or, short, the ask) back from the touch, by an amount that grows with inventory and volatility. On a stock with a wide spread the full formula would act.
+- **What it becomes on AAPL:** we never improve on the touch (D30), and the AS quotes are usually inside Nasdaq's spread (half a cent from the reservation price, while the spread is mostly 2-3 cents, D32), so they get moved back to the touch. Leaning can't make the ask more aggressive when long. The only effect is stepping the bid (or, short, the ask) back from the touch, by an amount that grows with inventory and volatility.
+  - *Correction (D32):* this first said the spread was "one tick". Sampling it showed Nasdaq's AAPL spread was 1 cent only 13 % of the time that day; the conclusion holds, the reason was wrong.
 - **Full day, AAPL, 30 Dec 2019** (cents per share; markouts + good for us):
 
   | latency | lean / lot | fills | shares | max pos | P&L | P&L / share | markout 0 | 10 s | 60 s |
@@ -343,6 +346,27 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - **At 50 µs, P&L per share is within noise** across all settings. One stock on one day can't separate a few hundredths of a cent.
 - **Next:** the P&L split (spread / adverse selection / inventory) will show this directly. The adverse-selection part needs a signal about the other side, which is the microprice (5d) and the trend/range read (milestone 6).
 
+### D32. Queue imbalance predicts the next second, not the next ten
+
+- **Question first, strategy second:** before using the microprice in a strategy, check on the data whether the imbalance at the touch, I = bid size / (bid size + ask size), predicts where the mid goes.
+- **Method (`imbalance_study`):** sample the touch every 100 ms from 09:31 to 16:00, group the samples into imbalance deciles, and average the mid change 1 s and 10 s later. Next to it: what the weighted mid (bid + I·spread, the simple microprice) predicted, (I − 0.5)·spread. Sampling on a clock grid, not on every book change, so busy moments don't count more than quiet ones.
+- **Spread on Nasdaq's book (AAPL, 30 Dec 2019):** 1 cent 13 %, 2 cents 36 %, 3 cents 32 %, 4 cents 14 %, wider 4 %. Nasdaq's own touch is often wider than the consolidated best bid and offer (other venues quote inside it), which is the one-venue limitation again.
+- **Result, mid change 1 s later (cents; 233 K samples):**
+
+  | I | predicted | realized | up | down |
+  |---|---|---|---|---|
+  | 0.0-0.1 (thin bid) | −1.13 | −0.31 | 28 % | 45 % |
+  | 0.2-0.3 | −0.71 | −0.08 | 31 % | 37 % |
+  | 0.4-0.5 | −0.14 | +0.01 | 31 % | 30 % |
+  | 0.6-0.7 | +0.40 | +0.09 | 35 % | 27 % |
+  | 0.9-1.0 (thin ask) | +1.08 | +0.23 | 43 % | 23 % |
+
+- **Reading it:**
+  - **The signal is real at 1 s:** the realized move rises with I across the deciles, and the thin side's price is almost twice as likely to move as the other one (45 % vs 28 %).
+  - **The weighted mid overreacts about 4x:** it predicts −1.13 cents where −0.31 happens. Its prediction would need scaling by about β ≈ 0.25. This is why Stoikov (2018) estimates the micro-price from data instead of using the weighted mid.
+  - **At 10 s it's gone:** every decile is about 50 % up / 47 % down, and the averages (+0.0 to +0.3) are just the day's upward drift. Imbalance is a sub-second signal.
+- **What that means for the strategy:** imbalance can help with the part of adverse selection that happens in the first second (markout +0.55 at the fill → −0.65 at 1 s, D27). It can't explain the further loss out to 10-60 s; that needs a slower signal (milestone 6).
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -359,4 +383,5 @@ cmake --preset release && cmake --build --preset release
 ./build/release/cpp/itch_replay data/itch/12302019.NASDAQ_ITCH50 AAPL QQQ MSFT
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50   # latency in µs
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --as 0.2   # Avellaneda-Stoikov, 0.2 cents lean per lot
+./build/release/cpp/imbalance_study data/itch/12302019.NASDAQ_ITCH50 AAPL   # does queue imbalance predict the mid?
 ```

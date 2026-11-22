@@ -8,6 +8,7 @@ add_library(orderbook STATIC
   src/sim/markout.cpp
   src/sim/volatility.cpp
   src/sim/avellaneda_stoikov.cpp
+  src/sim/imbalance.cpp
   src/itch/messages.cpp
   src/itch/mapped_file.cpp
   src/itch/scan.cpp
@@ -31,6 +32,7 @@ add_executable(orderbook_tests
   tests/markout_test.cpp
   tests/volatility_test.cpp
   tests/avellaneda_stoikov_test.cpp
+  tests/imbalance_test.cpp
 )
 target_link_libraries(orderbook_tests PRIVATE orderbook GTest::gtest_main)
 orderbook_warnings(orderbook_tests)
@@ -51,3 +53,7 @@ orderbook_warnings(itch_replay)
 add_executable(mm_sim tools/mm_sim.cpp)
 target_link_libraries(mm_sim PRIVATE orderbook)
 orderbook_warnings(mm_sim)
+
+add_executable(imbalance_study tools/imbalance_study.cpp)
+target_link_libraries(imbalance_study PRIVATE orderbook)
+orderbook_warnings(imbalance_study)
