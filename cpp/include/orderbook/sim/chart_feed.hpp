@@ -1,0 +1,70 @@
+#pragma once
+
+#include "orderbook/sim/bars.hpp"
+#include "orderbook/sim/indicators.hpp"
+
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <vector>
+
+// One timeframe's chart: bars plus the indicators on them, updated each time a bar
+// closes (D40). Run one per timeframe (1 s and 1 min side by side). VWAP isn't here: it
+// is per trade, not per bar, so all timeframes share one.
+
+namespace ob::sim {
+
+// The founder's chart settings by default; trials can change any of them.
+struct ChartSettings {
+  std::size_t ema_fast = 9;
+  std::size_t ema_slow = 21;
+  std::size_t sma = 20;
+  std::size_t bollinger_n = 20;
+  double bollinger_k = 2.0;
+  std::size_t rsi = 14;
+  std::size_t stoch = 14;
+  std::size_t stoch_k = 3;
+  std::size_t stoch_d = 3;
+};
+
+// A closed bar and every indicator's value as of its close (nullopt while warming up).
+// Prices in ticks.
+struct ChartPoint {
+  Bar bar;
+  std::optional<double> ema_fast;
+  std::optional<double> ema_slow;
+  std::optional<double> sma;
+  std::optional<BollingerValue> bollinger;
+  std::optional<double> rsi;
+  std::optional<StochRsiValue> stoch_rsi;
+};
+
+class ChartFeed {
+ public:
+  explicit ChartFeed(std::uint64_t interval_ns, ChartSettings settings = {});
+
+  // Same events as BarBuilder. Each returns one point per bar that closed, oldest first,
+  // with the indicators as they were at that bar's close (a quiet stretch closes several).
+  std::vector<ChartPoint> on_mid(std::uint64_t t_ns, Price mid_x2);
+  std::vector<ChartPoint> on_trade(std::uint64_t t_ns, std::uint64_t shares);
+  std::vector<ChartPoint> advance(std::uint64_t t_ns);
+
+  // The last closed bar's point: what a strategy may look at now. Never the bar that is
+  // still open (no look-ahead).
+  [[nodiscard]] const std::optional<ChartPoint>& latest() const { return latest_; }
+
+ private:
+  BarBuilder bars_;
+  Ema ema_fast_;
+  Ema ema_slow_;
+  Sma sma_;
+  Bollinger bollinger_;
+  Rsi rsi_;
+  StochRsi stoch_rsi_;
+  std::optional<ChartPoint> latest_;
+
+  // Feeds closed bars to the indicators, one at a time, and records each one's point.
+  std::vector<ChartPoint> close(const std::vector<Bar>& closed);
+};
+
+}  // namespace ob::sim

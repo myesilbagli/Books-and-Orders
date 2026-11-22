@@ -40,6 +40,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Milestone 5 results page + reproduce script | `docs/RESULTS.md`, `research/run_m5.sh` | done (5d) |
 | Time bars (OHLCV from the mid) for the indicators | `cpp/include/orderbook/sim/bars.hpp`, `cpp/src/sim/bars.cpp` | done (6b-1), D38 |
 | Indicators: SMA, EMA, Bollinger, RSI, Stochastic RSI, VWAP (streaming) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/src/sim/indicators.cpp` | done (6b-2), D39 |
+| Trades from ITCH (E, printable C, P) + `ChartFeed` (bars + indicators per timeframe) | `cpp/include/orderbook/sim/trades.hpp`, `cpp/src/sim/trades.cpp`, `cpp/include/orderbook/sim/chart_feed.hpp`, `cpp/src/sim/chart_feed.cpp` | done (6b-3a), D40 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -528,6 +529,17 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Bollinger's standard deviation is computed in two passes** (mean, then squared gaps from it), not from running sums. At ~29 M ticks, mean(x²) − mean(x)² subtracts two numbers near 8 × 10¹⁴ to find a variance of a few ticks², and a double can't hold that difference (catastrophic cancellation). That's O(n) per bar with n ≈ 20, which is nothing. A test pins it with AAPL-sized prices moving one tick.
 - **VWAP in integers:** Σ price × shares in int64 is exact (about 10¹³ for a day, against a limit of about 9 × 10¹⁸). It is updated on every trade, not per bar.
 - **Composable:** SMA averages any series, which is how Stochastic RSI builds %K and %D. Each class is small and has no virtual calls; a trial owns the ones it needs.
+
+### D40. Trades from ITCH, and one `ChartFeed` per timeframe
+
+- **What counts as a trade:**
+  - **E:** a displayed order executed. The message has no price; the trade is at the resting order's price, read before the book applies the message (the book may remove the order).
+  - **C:** executed at another price. Counted only when printable; a non-printable C was counted by Nasdaq elsewhere, and counting it again would double the volume.
+  - **P:** a hidden order executed. It never touches the book, but it is real volume.
+  - An E for an order the book doesn't have is skipped: there's no price to give it, and the replay already counts it as an unknown order (D21).
+- **Not counted (yet):** the opening and closing crosses (`Q`), the big single prints at 09:30 and 16:00, because the decoder doesn't read them. Charts include them, so our VWAP from 09:30 will start a little off a chart's, and the 09:30 and 16:00 bars' volume is too low. Other venues' trades aren't in ITCH at all (one venue, see Known limitations): volume and VWAP are Nasdaq's only.
+- **`ChartFeed`:** one timeframe's bars plus every indicator, with the founder's settings as defaults (`ChartSettings`). Each event returns one `ChartPoint` per bar that closed, with the indicators as they were at that bar's close. A quiet stretch closes several bars at once, and reading the values only at the end would give every one of them the last bar's numbers; a test pins this. `latest()` is the last closed bar's point, never the open bar's, so that's what a strategy may use.
+- **VWAP stays outside `ChartFeed`:** it updates per trade, not per bar, so the 1 s and 1 min charts share one.
 
 ## Build
 

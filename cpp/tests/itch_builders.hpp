@@ -55,11 +55,22 @@ inline Bytes executed(std::uint16_t locate, OrderId ref, Quantity qty, std::uint
 }
 
 inline Bytes executed_with_price(std::uint16_t locate, OrderId ref, Quantity qty,
-                                 std::uint64_t ts = 1000) {
+                                 std::uint64_t ts = 1000, Price price = 0, char printable = 'Y') {
   Bytes b = message('C', 36, locate, ts);
   put_be(b, 11, ref, 8);
   put_be(b, 19, qty, 4);
-  b[31] = 'Y';
+  b[31] = static_cast<std::uint8_t>(printable);
+  put_be(b, 32, static_cast<std::uint64_t>(price), 4);
+  return b;
+}
+
+// 'P': a trade against a hidden order. It never touches the book.
+inline Bytes non_cross_trade(std::uint16_t locate, char side, Quantity qty, Price price,
+                             std::uint64_t ts = 1000) {
+  Bytes b = message('P', 44, locate, ts);
+  b[19] = static_cast<std::uint8_t>(side);
+  put_be(b, 20, qty, 4);
+  put_be(b, 32, static_cast<std::uint64_t>(price), 4);
   return b;
 }
 
