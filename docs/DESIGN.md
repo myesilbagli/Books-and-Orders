@@ -41,6 +41,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Time bars (OHLCV from the mid) for the indicators | `cpp/include/orderbook/sim/bars.hpp`, `cpp/src/sim/bars.cpp` | done (6b-1), D38 |
 | Indicators: SMA, EMA, Bollinger, RSI, Stochastic RSI, VWAP (streaming) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/src/sim/indicators.cpp` | done (6b-2), D39 |
 | Trades from ITCH (E, printable C, P) + `ChartFeed` (bars + indicators per timeframe) | `cpp/include/orderbook/sim/trades.hpp`, `cpp/src/sim/trades.cpp`, `cpp/include/orderbook/sim/chart_feed.hpp`, `cpp/src/sim/chart_feed.cpp` | done (6b-3a), D40 |
+| Chart CSV + `chart_dump` tool (1 s and 1 min bars with indicators, for checking against a chart) | `cpp/include/orderbook/sim/chart_csv.hpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/tools/chart_dump.cpp` | done (6b-3b), D41 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -541,6 +542,17 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **`ChartFeed`:** one timeframe's bars plus every indicator, with the founder's settings as defaults (`ChartSettings`). Each event returns one `ChartPoint` per bar that closed, with the indicators as they were at that bar's close. A quiet stretch closes several bars at once, and reading the values only at the end would give every one of them the last bar's numbers; a test pins this. `latest()` is the last closed bar's point, never the open bar's, so that's what a strategy may use.
 - **VWAP stays outside `ChartFeed`:** it updates per trade, not per bar, so the 1 s and 1 min charts share one.
 
+### D41. `chart_dump`: the indicators on the real day, checked against a chart
+
+- **What:** replays the file and writes every closed 1 s and 1 min bar for one stock, with every indicator and the VWAP at that bar's close, in chart units (dollars, 0-100). Bars start at `--from` (09:00 by default, so pre-market warms the indicators up) and end at 16:00. VWAP starts at `--vwap-from` (09:30 by default). An indicator still warming up is an empty field, not a 0.
+- **Order of work per message:** close the bars that ended at or before its time, then take the trade (before the book applies it, D40), then apply it and feed a changed mid. So a bar's row never includes anything stamped at or after its end, VWAP included.
+- **AAPL, 30 Dec 2019 (full day, ~75 s):**
+  - 67 K trades counted. Regular-session Nasdaq volume is 5.68 M shares, about a sixth of the consolidated volume (the one-venue limitation).
+  - The day's high and low from our 1 min bars are $292.69 / $285.235, against roughly $292.69 / $285.22 on consolidated charts. The mid tracks the traded price.
+  - Of the 23,400 regular-session 1 s bars, 47 % have no trade and 26 % have no mid move at all. A trade-price chart would be half empty at 1 s, which is why bars use the mid (D38).
+- **Bug found by looking at the output:** Stochastic RSI printed "-0.00". SMA kept a running total, and adding then subtracting the same doubles leaves rounding dust (0.1 + 0.1 + 0.1 − 0.1 − 0.1 − 0.1 = 2.8 × 10⁻¹⁷). SMA now sums its window afresh each time (n ≤ 21, so it's cheap), and a test pins it. Same lesson as D28: check the output, not just the tests.
+- **Still to check:** individual EMA, VWAP and RSI values against a chart (TradingView, 1 min, 30 Dec 2019). Expect the moving averages within about a cent (mid vs trade price). VWAP will differ more: Nasdaq-only volume and no opening print (D40).
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -560,6 +572,7 @@ cmake --preset release && cmake --build --preset release
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --pull 0.2   # no quote on a side under 20% of the touch
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --rebate 0.2   # add a 0.2 cent/share maker rebate
 ./build/release/cpp/imbalance_study data/itch/12302019.NASDAQ_ITCH50 AAPL   # does queue imbalance predict the mid?
+./build/release/cpp/chart_dump data/itch/12302019.NASDAQ_ITCH50 AAPL data/sim/chart/AAPL_chart.csv   # 1 s + 1 min bars and indicators [--from 09:00] [--vwap-from 09:30]
 
 # research (Python, standard library only)
 research/.venv/bin/python -m unittest discover -s research

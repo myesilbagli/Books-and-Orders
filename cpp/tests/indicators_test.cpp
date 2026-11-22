@@ -21,6 +21,16 @@ TEST(SmaTest, AverageOfTheLastN) {
   EXPECT_DOUBLE_EQ(*sma.value(), 12.0);
 }
 
+// A running sum drifts: 0.1 + 0.1 + 0.1 - 0.1 - 0.1 - 0.1 is 2.8e-17, not 0, in doubles.
+// After three zeros the average must be exactly 0 (it printed "-0.00" for Stoch RSI).
+TEST(SmaTest, NoDriftAfterTheWindowMovesOn) {
+  Sma sma(3);
+  for (double x : {0.1, 0.1, 0.1, 0.0, 0.0, 0.0}) {
+    sma.update(x);
+  }
+  EXPECT_EQ(*sma.value(), 0.0);
+}
+
 // EMA(3): alpha = 0.5. First value = SMA of 10, 11, 12 = 11; then 13 moves it halfway: 12.
 TEST(EmaTest, SeededWithTheSmaThenMovesByAlpha) {
   Ema ema(3);

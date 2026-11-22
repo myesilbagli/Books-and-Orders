@@ -28,7 +28,6 @@ class Sma {
  private:
   std::size_t n_;
   std::deque<double> window_;
-  double sum_ = 0.0;
 };
 
 // Exponential moving average, alpha = 2 / (n + 1). The first value is the SMA of the first

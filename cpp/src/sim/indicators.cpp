@@ -13,9 +13,7 @@ Sma::Sma(std::size_t n) : n_(std::max<std::size_t>(n, 1)) {}
 
 void Sma::update(double x) {
   window_.push_back(x);
-  sum_ += x;
   if (window_.size() > n_) {
-    sum_ -= window_.front();
     window_.pop_front();
   }
 }
@@ -24,7 +22,14 @@ std::optional<double> Sma::value() const {
   if (window_.size() < n_) {
     return std::nullopt;
   }
-  return sum_ / static_cast<double>(n_);
+  // Summed afresh each time, not kept as a running total: adding and later subtracting
+  // the same doubles leaves rounding dust (0.1 + 0.1 + 0.1 - 0.1 - 0.1 - 0.1 != 0), which
+  // showed up as "-0.00" in Stochastic RSI. n is small (3 to 21), so this is cheap.
+  double sum = 0.0;
+  for (double v : window_) {
+    sum += v;
+  }
+  return sum / static_cast<double>(n_);
 }
 
 // --- EMA -------------------------------------------------------------------------------
