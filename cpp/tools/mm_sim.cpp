@@ -17,6 +17,7 @@
 #include "orderbook/itch/messages.hpp"
 #include "orderbook/itch/reader.hpp"
 #include "orderbook/sim/avellaneda_stoikov.hpp"
+#include "orderbook/sim/fills_csv.hpp"
 #include "orderbook/sim/pnl.hpp"
 #include "orderbook/sim/pull_when_thin.hpp"
 #include "orderbook/sim/simulator.hpp"
@@ -312,13 +313,7 @@ int main(int argc, char* argv[]) {
 
   if (csv_path) {
     std::ofstream csv(*csv_path);
-    csv << "timestamp_ns,side,price,quantity,markout_1s_ticks,markout_10s_ticks\n";
-    for (const auto& f : fills) {
-      csv << f.timestamp_ns << ',' << (f.side == ob::Side::Buy ? 'B' : 'S') << ',' << f.price
-          << ',' << f.quantity << ','
-          << ob::sim::markout_ticks(f, sim.mids(), kSecond).value_or(0.0) << ','
-          << ob::sim::markout_ticks(f, sim.mids(), 10 * kSecond).value_or(0.0) << '\n';
-    }
+    ob::sim::write_fills_csv(csv, fills, sim.mids(), config.end_ns);  // D37
   }
   return 0;
 }

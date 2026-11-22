@@ -34,7 +34,8 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Pull-when-thin wrapper, `mm_sim --pull`, quote message count | `cpp/include/orderbook/sim/pull_when_thin.hpp`, `cpp/include/orderbook/sim/simulator.hpp`, `cpp/tools/mm_sim.cpp` | done (5d-b2), D34 |
 | P&L breakdown (spread / adverse selection / inventory) | `cpp/include/orderbook/sim/pnl.hpp`, `cpp/src/sim/pnl.cpp`, `cpp/tools/mm_sim.cpp` | done (5a), D35 |
 | Maker rebate (`mm_sim --rebate`) | `cpp/tools/mm_sim.cpp` | done (5b), D36 |
-| Confidence intervals, summary table | — | milestone 5 (5c-5d) |
+| Fills CSV + block-bootstrap intervals (`research/bootstrap.py`) | `cpp/include/orderbook/sim/fills_csv.hpp`, `cpp/src/sim/fills_csv.cpp`, `research/bootstrap.py`, `research/test_bootstrap.py` | done (5c), D37 |
+| Milestone 5 summary | — | milestone 5 (5d) |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -469,6 +470,32 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   (AS and pull rows: shares × rebate added to their totals from D35.)
 - **Reading it:** the rebate covers about a quarter of the naive loss. To break even the naive strategy would need 0.81 cents a share, almost three times the best tier. Rebates are why market makers can live on thin edges, but they can't pay for being picked off: the first-second adverse selection (D35) has to come down.
 
+### D37. Confidence intervals: block bootstrap, paired comparisons
+
+- **Question:** one day gives one number per strategy. Is a difference between two strategies more than that day's noise? (Not the same as overfitting: that needs days never looked at. This filter stops us from reading noise as a finding, the most common way to overfit.)
+- **Pipeline:** `mm_sim` writes raw fills (`write_fills_csv`, D37 columns: prices, mid before, mids 1/10/60 s later capped at 16:00, book context). `research/bootstrap.py` (Python, standard library only, unit-tested) does the statistics. Research in Python, simulation in C++, as planned.
+- **What's measured:** P&L per share at horizon h = spread + adverse selection (D35), as total P&L / total shares. Inventory isn't bootstrapped: it is the move from h to the close, one path for the whole day, and can't be cut into blocks.
+- **Block bootstrap:** 09:31-16:00 cut into 5-minute blocks (78); draw 78 blocks with replacement, recompute, 2,000 times; the middle 95 % is the interval. Blocks, not single fills, because fills close in time share one price move; treating them as independent makes the interval falsely narrow. Empty blocks stay in.
+- **Paired:** both runs replay the same day, so each resample uses the same blocks for both, and the interval is on the difference. A block where the market moved hard hurts both runs, and that shared noise cancels. The difference intervals come out much narrower than either run's own interval.
+- **Results, AAPL, 10 s horizon, 5-minute blocks** (cents per share):
+
+  | run | estimate | 95 % interval | vs naive 0 µs | 95 % interval | verdict |
+  |---|---|---|---|---|---|
+  | naive, 0 µs | −0.84 | [−1.02, −0.67] | | | |
+  | AS 0.5 ¢ | −0.83 | [−1.03, −0.64] | +0.01 | [−0.11, +0.13] | noise |
+  | AS 1.0 ¢ | −0.83 | [−1.03, −0.64] | +0.02 | [−0.14, +0.15] | noise |
+  | pull 0.2 | −0.87 | [−1.10, −0.64] | −0.03 | [−0.14, +0.09] | noise |
+  | pull 0.3 | −0.78 | [−1.03, −0.52] | +0.07 | [−0.12, +0.25] | noise |
+  | naive, 50 µs | −1.00 | [−1.23, −0.78] | −0.16 | [−0.32, −0.03] | **worse** |
+  | pull 0.2, 50 µs | −1.07 | [−1.32, −0.83] | −0.23 | [−0.40, −0.06] | **worse** |
+
+  At 1 s the same picture (every strategy vs naive: noise; pull 0.3 at −0.08 [−0.19, +0.02] is the closest to "worse"). With 1-minute and 15-minute blocks the verdicts don't change.
+- **Reading it:**
+  - **The loss is real** (in-sample): the naive interval is well below zero.
+  - **None of the strategy ideas so far is distinguishable from naive** on what they control, the 10 s P&L per share. Their smaller dollar losses (D31, D34) are fewer shares traded, now confirmed: per share they are the same.
+  - **Latency is the one difference that shows up:** 50 µs is about 0.16 cents a share worse than 0 µs at 10 s, and the interval excludes zero. This turns around the earlier reading. In total P&L, 50 µs looked *better* (−$3,366 vs −$3,796, D27), but that gap was the inventory part (+$1,341 vs +$145, D35), i.e. the day's path, not the strategy. Splitting the P&L and putting intervals on the controllable part is what shows it.
+  - Still one day: these say what is noise *on this day*. Whether anything holds on other days is the out-of-sample question for the optimization phase.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -488,4 +515,10 @@ cmake --preset release && cmake --build --preset release
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --pull 0.2   # no quote on a side under 20% of the touch
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --rebate 0.2   # add a 0.2 cent/share maker rebate
 ./build/release/cpp/imbalance_study data/itch/12302019.NASDAQ_ITCH50 AAPL   # does queue imbalance predict the mid?
+
+# research (Python, standard library only)
+research/.venv/bin/python -m unittest discover -s research
+./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 0 data/sim/ci/naive_0us.csv
+./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 0 data/sim/ci/as10_0us.csv --as 1.0
+research/.venv/bin/python research/bootstrap.py data/sim/ci/naive_0us.csv data/sim/ci/as10_0us.csv   # first = baseline
 ```

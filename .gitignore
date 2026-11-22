@@ -14,3 +14,6 @@ data/
 
 # Python virtual environments
 .venv/
+
+# Python bytecode
+__pycache__/
