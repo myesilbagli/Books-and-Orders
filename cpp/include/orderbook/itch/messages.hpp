@@ -111,6 +111,17 @@ struct NonCrossTrade {
   std::uint64_t match_number;
 };
 
+// 'Q' (Cross Trade): the single print of an auction (the opening or closing cross). The
+// resting orders it fills get non-printable 'C' messages; this is where the volume is.
+struct CrossTrade {
+  Header header;
+  std::uint64_t shares;  // 8 bytes in this message (4 everywhere else)
+  Symbol stock;
+  Price cross_price;
+  std::uint64_t match_number;
+  char cross_type;  // 'O' opening, 'C' closing, 'H' halt/IPO, 'I' intraday
+};
+
 // Expected length of each message type in bytes, or 0 for a type we don't decode.
 // The caller uses it to check a message before decoding it.
 [[nodiscard]] std::size_t message_length(char type);
@@ -129,5 +140,7 @@ struct NonCrossTrade {
 [[nodiscard]] std::optional<OrderReplace> decode_order_replace(const std::uint8_t* p,
                                                                std::size_t len);
 [[nodiscard]] std::optional<NonCrossTrade> decode_non_cross_trade(const std::uint8_t* p, std::size_t len);
+[[nodiscard]] std::optional<CrossTrade> decode_cross_trade(const std::uint8_t* p,
+                                                         std::size_t len);
 
 }  // namespace ob::itch

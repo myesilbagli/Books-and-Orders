@@ -62,6 +62,7 @@ std::size_t message_length(char type) {
     case 'D': return 19;
     case 'U': return 35;
     case 'P': return 44;
+    case 'Q': return 40;
     case 'R': return 39;
     case 'H': return 25;
     default: return 0;  // a type we don't decode
@@ -172,6 +173,18 @@ std::optional<NonCrossTrade> decode_non_cross_trade(const std::uint8_t* p, std::
                        .stock = read_text<8>(p + 24),
                        .price = read_price(p + 32),
                        .match_number = read_u64(p + 36)};
+}
+
+std::optional<CrossTrade> decode_cross_trade(const std::uint8_t* p, std::size_t len) {
+  if (!fits(p, len, 'Q')) {
+    return std::nullopt;
+  }
+  return CrossTrade{.header = read_header(p),
+                    .shares = read_u64(p + 11),  // 8 bytes here, not 4
+                    .stock = read_text<8>(p + 19),
+                    .cross_price = read_price(p + 27),
+                    .match_number = read_u64(p + 31),
+                    .cross_type = static_cast<char>(p[39])};
 }
 
 }  // namespace ob::itch

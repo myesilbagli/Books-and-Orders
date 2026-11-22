@@ -58,6 +58,23 @@ TEST(TradesTest, HiddenOrderTradeCounts) {
   EXPECT_EQ(t->timestamp_ns, 6'000u);
 }
 
+// Q: the opening cross matched 269,367 shares at $289.46 in one print. The orders it
+// filled get non-printable C messages, so this is the only place that volume is counted.
+TEST(TradesTest, OpeningCrossIsATrade) {
+  const Replayer replay;
+  const std::optional<Trade> t = trade(cross_trade(kAapl, 269'367, 2'894'600, 'O', 7'000), replay);
+  ASSERT_TRUE(t);
+  EXPECT_EQ(t->price, 2'894'600);
+  EXPECT_EQ(t->shares, 269'367u);
+  EXPECT_EQ(t->timestamp_ns, 7'000u);
+}
+
+// Nasdaq sends a cross message even when nothing matched: no shares, no trade.
+TEST(TradesTest, EmptyCrossIsNotATrade) {
+  const Replayer replay;
+  EXPECT_FALSE(trade(cross_trade(kAapl, 0, 2'894'600, 'O'), replay));
+}
+
 TEST(TradesTest, OrderMessagesAreNotTrades) {
   const Replayer replay = book_with_a_bid();
   EXPECT_FALSE(trade(add(kAapl, 8, 'S', 100, 10'010), replay));

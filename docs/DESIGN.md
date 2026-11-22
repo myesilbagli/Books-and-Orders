@@ -18,7 +18,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Order book: add, cancel, best bid/ask, queue per price | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
 | Matching: `submit` with price-time priority, `Trade` records | `cpp/include/orderbook/book.hpp`, `cpp/src/book.cpp` | done |
 | ITCH 5.0: big-endian byte readers | `cpp/include/orderbook/itch/bytes.hpp` | done |
-| ITCH 5.0: message decoder (`A F E C X D U P R H`) | `cpp/include/orderbook/itch/messages.hpp`, `cpp/src/itch/messages.cpp` | done |
+| ITCH 5.0: message decoder (`A F E C X D U P Q R H`) | `cpp/include/orderbook/itch/messages.hpp`, `cpp/src/itch/messages.cpp` | done |
 | ITCH 5.0: message splitter (`ItchReader`, zero-copy) | `cpp/include/orderbook/itch/reader.hpp` | done |
 | ITCH 5.0: memory-mapped file (`MappedFile`, RAII) | `cpp/include/orderbook/itch/mapped_file.hpp`, `cpp/src/itch/mapped_file.cpp` | done |
 | ITCH 5.0: `scan` (count types, check decoders) + `itch_stats` tool | `cpp/include/orderbook/itch/scan.hpp`, `cpp/src/itch/scan.cpp`, `cpp/tools/itch_stats.cpp` | done |
@@ -40,7 +40,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Milestone 5 results page + reproduce script | `docs/RESULTS.md`, `research/run_m5.sh` | done (5d) |
 | Time bars (OHLCV from the mid) for the indicators | `cpp/include/orderbook/sim/bars.hpp`, `cpp/src/sim/bars.cpp` | done (6b-1), D38 |
 | Indicators: SMA, EMA, Bollinger, RSI, Stochastic RSI, VWAP (streaming) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/src/sim/indicators.cpp` | done (6b-2), D39 |
-| Trades from ITCH (E, printable C, P) + `ChartFeed` (bars + indicators per timeframe) | `cpp/include/orderbook/sim/trades.hpp`, `cpp/src/sim/trades.cpp`, `cpp/include/orderbook/sim/chart_feed.hpp`, `cpp/src/sim/chart_feed.cpp` | done (6b-3a), D40 |
+| Trades from ITCH (E, printable C, P, Q) + `ChartFeed` (bars + indicators per timeframe) | `cpp/include/orderbook/sim/trades.hpp`, `cpp/src/sim/trades.cpp`, `cpp/include/orderbook/sim/chart_feed.hpp`, `cpp/src/sim/chart_feed.cpp` | done (6b-3a), D40 |
 | Chart CSV + `chart_dump` tool (1 s and 1 min bars with indicators, for checking against a chart) | `cpp/include/orderbook/sim/chart_csv.hpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/tools/chart_dump.cpp` | done (6b-3b), D41 |
 | Cross-check of bars and indicators against Databento | `research/check_chart.py` | done, D42 |
 | Trend/range signal for the market maker | — | milestone 6 |
@@ -539,7 +539,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - **C:** executed at another price. Counted only when printable; a non-printable C was counted by Nasdaq elsewhere, and counting it again would double the volume.
   - **P:** a hidden order executed. It never touches the book, but it is real volume.
   - An E for an order the book doesn't have is skipped: there's no price to give it, and the replay already counts it as an unknown order (D21).
-- **Not counted (yet):** the opening and closing crosses (`Q`), the big single prints at 09:30 and 16:00, because the decoder doesn't read them. Charts include them, so our VWAP from 09:30 will start a little off a chart's, and the 09:30 and 16:00 bars' volume is too low. Other venues' trades aren't in ITCH at all (one venue, see Known limitations): volume and VWAP are Nasdaq's only.
+- **Q, the auction prints (added after D42):** the opening and closing crosses are each one `Q` message with the whole auction's shares at the cross price. The resting orders the auction filled get non-printable C messages, which is why those are skipped: the volume is in the Q. A cross where nothing matched still sends a Q with 0 shares, which isn't a trade. Other venues' trades aren't in ITCH at all (one venue, see Known limitations), so volume and VWAP are Nasdaq's only.
 - **`ChartFeed`:** one timeframe's bars plus every indicator, with the founder's settings as defaults (`ChartSettings`). Each event returns one `ChartPoint` per bar that closed, with the indicators as they were at that bar's close. A quiet stretch closes several bars at once, and reading the values only at the end would give every one of them the last bar's numbers; a test pins this. `latest()` is the last closed bar's point, never the open bar's, so that's what a strategy may use.
 - **VWAP stays outside `ChartFeed`:** it updates per trade, not per bar, so the 1 s and 1 min charts share one.
 
@@ -570,7 +570,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
     - RSI: 0.34 / 1.0 points.
     - Stochastic RSI %K: 1.0 / 4.4 points.
   - Moving averages barely notice the choice of price. Stochastic RSI does, since it's a ratio of small RSI moves. A rule that fires on a %K threshold could flip near the line depending on mid vs trade.
-- **Open item:** the opening cross is a big, real print at the open. Reading `Q` messages would put it in volume and VWAP.
+- **Opening cross added (`Q`, D40):** with it, volume is identical in all 390 minutes and all 23,400 seconds, and the totals are equal (5,947,543 shares). VWAP at the 09:30 bar's close moves from $289.11 to $289.37. The simulator doesn't use `trade_of`, and the milestone 5 runs were rerun to check: their fills are byte-identical.
 
 ## Build
 

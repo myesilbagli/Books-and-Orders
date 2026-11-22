@@ -6,7 +6,7 @@ namespace ob::itch {
 
 namespace {
 
-// Runs the decoder for the types we decode (the 8 book types plus R and H).
+// Runs the decoder for the types we decode (the 8 book types, the cross Q, R and H).
 // true = decoded, or not one of ours (nothing to check).
 bool decodes(const RawMessage& m) {
   switch (m.data[0]) {
@@ -25,6 +25,8 @@ bool decodes(const RawMessage& m) {
       return decode_order_replace(m.data, m.length).has_value();
     case 'P':
       return decode_non_cross_trade(m.data, m.length).has_value();
+    case 'Q':
+      return decode_cross_trade(m.data, m.length).has_value();
     case 'R':
       return decode_stock_directory(m.data, m.length).has_value();
     case 'H':

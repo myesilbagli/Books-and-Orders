@@ -53,6 +53,7 @@ TEST(ItchMessagesTest, KnowsTheLengthOfEachType) {
   EXPECT_EQ(message_length('D'), 19u);
   EXPECT_EQ(message_length('U'), 35u);
   EXPECT_EQ(message_length('P'), 44u);
+  EXPECT_EQ(message_length('Q'), 40u);
   EXPECT_EQ(message_length('R'), 39u);
   EXPECT_EQ(message_length('H'), 25u);
 }
@@ -201,6 +202,24 @@ TEST(ItchMessagesTest, DecodesNonCrossTrade) {
   EXPECT_EQ(m->stock, symbol("AAPL    "));
   EXPECT_EQ(m->price, 1'502'750);
   EXPECT_EQ(m->match_number, 123'458u);
+}
+
+// 'Q': the opening (or closing) cross, one print for everything the auction matched.
+TEST(ItchMessagesTest, DecodesCrossTrade) {
+  auto buf = make_message('Q', 40);
+  put_be(buf, 11, 269'367, 8);  // shares are 8 bytes here, unlike every other message
+  put_text(buf, 19, "AAPL", 8);
+  put_be(buf, 27, 2'894'600, 4);
+  put_be(buf, 31, 123'459, 8);
+  buf[39] = 'O';
+
+  const auto m = decode_cross_trade(buf.data(), buf.size());
+  ASSERT_TRUE(m.has_value());
+  EXPECT_EQ(m->shares, 269'367u);
+  EXPECT_EQ(m->stock, symbol("AAPL    "));
+  EXPECT_EQ(m->cross_price, 2'894'600);
+  EXPECT_EQ(m->match_number, 123'459u);
+  EXPECT_EQ(m->cross_type, 'O');
 }
 
 TEST(ItchMessagesTest, DecodesStockDirectory) {

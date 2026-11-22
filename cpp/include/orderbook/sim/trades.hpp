@@ -12,7 +12,8 @@
 //   C  a displayed order executed at another price; skipped when not printable, since
 //      Nasdaq has counted that volume elsewhere
 //   P  a hidden order executed (the only trace hidden liquidity leaves)
-// Not included: the opening and closing crosses ('Q'), which the decoder doesn't read.
+//   Q  an auction's single print (the opening and closing crosses); the orders it filled
+//      get non-printable C messages, which is why those are skipped
 
 namespace ob::sim {
 

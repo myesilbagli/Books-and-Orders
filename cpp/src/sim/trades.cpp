@@ -44,6 +44,17 @@ std::optional<Trade> trade_of(const std::uint8_t* p, std::size_t len, const Repl
                  .price = m->price,
                  .shares = m->shares};
   }
+  if (p[0] == 'Q') {
+    const auto m = itch::decode_cross_trade(p, len);
+    if (!m || m->shares == 0) {
+      return std::nullopt;  // a cross where nothing matched still sends a message
+    }
+    return Trade{.timestamp_ns = m->header.timestamp_ns,
+                 .locate = m->header.stock_locate,
+                 .price = m->cross_price,
+                 // 8 bytes on the wire, but no auction trades 4 billion shares of one stock
+                 .shares = static_cast<Quantity>(m->shares)};
+  }
   return std::nullopt;
 }
 

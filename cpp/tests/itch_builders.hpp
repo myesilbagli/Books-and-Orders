@@ -97,6 +97,16 @@ inline Bytes replaced(std::uint16_t locate, OrderId old_ref, OrderId new_ref, Qu
   return b;
 }
 
+// 'Q': an auction's single print ('O' opening, 'C' closing).
+inline Bytes cross_trade(std::uint16_t locate, std::uint64_t qty, Price price, char type,
+                         std::uint64_t ts = 1000) {
+  Bytes b = message('Q', 40, locate, ts);
+  put_be(b, 11, qty, 8);
+  put_be(b, 27, static_cast<std::uint64_t>(price), 4);
+  b[39] = static_cast<std::uint8_t>(type);
+  return b;
+}
+
 inline Bytes trading_action(std::uint16_t locate, char state, std::uint64_t ts = 1000) {
   Bytes b = message('H', 25, locate, ts);
   b[19] = static_cast<std::uint8_t>(state);
