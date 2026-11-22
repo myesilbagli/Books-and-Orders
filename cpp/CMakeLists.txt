@@ -7,6 +7,7 @@ add_library(orderbook STATIC
   src/sim/simulator.cpp
   src/sim/markout.cpp
   src/sim/volatility.cpp
+  src/sim/avellaneda_stoikov.cpp
   src/itch/messages.cpp
   src/itch/mapped_file.cpp
   src/itch/scan.cpp
@@ -29,6 +30,7 @@ add_executable(orderbook_tests
   tests/simulator_test.cpp
   tests/markout_test.cpp
   tests/volatility_test.cpp
+  tests/avellaneda_stoikov_test.cpp
 )
 target_link_libraries(orderbook_tests PRIVATE orderbook GTest::gtest_main)
 orderbook_warnings(orderbook_tests)

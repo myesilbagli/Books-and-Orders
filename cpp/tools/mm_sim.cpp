@@ -1,15 +1,19 @@
 // mm_sim: run the naive market-making simulation for one stock over an ITCH file and
 // report fills, inventory, P&L and markouts.
 //
-//   ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 [fills.csv]
+//   ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 [fills.csv] [--as 0.2]
 //
-// The third argument is the latency in microseconds. Quoting runs 09:31-16:00 ET: the
+// The third argument is the latency in microseconds. Without --as the naive strategy
+// runs (join the touch); --as <cents> runs Avellaneda-Stoikov with gamma set so that,
+// at AAPL's average volatility on 30 Dec 2019, one lot (one quote) leans the quotes by
+// that many cents (D31). Quoting runs 09:31-16:00 ET: the
 // first minute is skipped because the opening auction (cross) works by different rules
 // than the continuous book the simulator models.
 
 #include "orderbook/itch/mapped_file.hpp"
 #include "orderbook/itch/messages.hpp"
 #include "orderbook/itch/reader.hpp"
+#include "orderbook/sim/avellaneda_stoikov.hpp"
 #include "orderbook/sim/simulator.hpp"
 
 #include <algorithm>
@@ -19,6 +23,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -27,6 +32,10 @@ namespace {
 
 constexpr std::uint64_t kSecond = 1'000'000'000;
 constexpr std::uint64_t kHour = 3600 * kSecond;
+
+// AAPL's mid variance over 30 Dec 2019 on a 1 s grid (D29), in ticks^2 per second. Only
+// used to turn "cents of lean per lot" into a gamma, so runs are easy to compare.
+constexpr double kReferenceVariance = 40'000.0;
 
 // The stock directory ('R') comes at the very start of the file, before any orders, so
 // finding a symbol's locate only reads a few thousand messages.
@@ -64,11 +73,22 @@ std::string clock_text(std::uint64_t ns) {
 
 int main(int argc, char* argv[]) {
   if (argc < 4) {
-    std::cerr << "usage: " << argv[0] << " <itch-file> <SYMBOL> <latency_us> [fills.csv]\n";
+    std::cerr << "usage: " << argv[0]
+              << " <itch-file> <SYMBOL> <latency_us> [fills.csv] [--as <cents per lot>]\n";
     return 2;
   }
   const std::string symbol = argv[2];
   const std::uint64_t latency_ns = std::strtoull(argv[3], nullptr, 10) * 1000;
+  std::optional<std::string> csv_path;
+  std::optional<double> as_lean_cents;
+  for (int i = 4; i < argc; ++i) {
+    const std::string arg = argv[i];
+    if (arg == "--as" && i + 1 < argc) {
+      as_lean_cents = std::strtod(argv[++i], nullptr);
+    } else {
+      csv_path = arg;
+    }
+  }
 
   const ob::itch::MappedFile file(argv[1]);
   if (!file.is_open()) {
@@ -87,7 +107,24 @@ int main(int argc, char* argv[]) {
                                   .max_inventory = 500,
                                   .start_ns = 9 * kHour + 31 * 60 * kSecond,
                                   .end_ns = 16 * kHour};
-  ob::sim::Simulator sim(config);
+  // The strategy has to outlive the simulator (it's used by reference), so it's made
+  // first. unique_ptr<Strategy> holds either kind; it deletes the object when main ends.
+  std::unique_ptr<ob::sim::Strategy> strategy;
+  std::string strategy_name = "naive (join the touch)";
+  if (as_lean_cents) {
+    ob::sim::AsConfig as{.gamma = 0.0};
+    // lean per lot = gamma x variance x H, in ticks; 1 cent = 100 ticks.
+    as.gamma = *as_lean_cents * 100.0 / (kReferenceVariance * as.holding_s);
+    as.lot = static_cast<std::int64_t>(config.quote_size);
+    strategy = std::make_unique<ob::sim::AvellanedaStoikov>(as);
+    std::ostringstream name;
+    name << "Avellaneda-Stoikov, " << *as_lean_cents << " cents lean per lot at average vol"
+         << " (gamma " << as.gamma << ", H " << as.holding_s << " s)";
+    strategy_name = name.str();
+  } else {
+    strategy = std::make_unique<ob::sim::NaiveStrategy>();
+  }
+  ob::sim::Simulator sim(config, *strategy);
 
   const auto start = std::chrono::steady_clock::now();
   ob::itch::ItchReader reader(file.data(), file.size());
@@ -121,6 +158,7 @@ int main(int argc, char* argv[]) {
   std::cout << symbol << " (locate " << *locate << "), latency " << latency_ns / 1000
             << " us, quoting 09:31 ET until " << clock_text(std::min(last_ts, config.end_ns))
             << " ET\n"
+            << "strategy:         " << strategy_name << "\n"
             << "fills:            " << fills.size() << "  (" << buys << " buys / " << bought
             << " sh, " << sells << " sells / " << sold << " sh)\n"
             << "inventory at end: " << sim.inventory() << " sh  (max |position| " << max_position
@@ -147,8 +185,8 @@ int main(int argc, char* argv[]) {
   }
   std::cout << std::setprecision(1) << "\nrun time: " << elapsed.count() << " s\n";
 
-  if (argc > 4) {
-    std::ofstream csv(argv[4]);
+  if (csv_path) {
+    std::ofstream csv(*csv_path);
     csv << "timestamp_ns,side,price,quantity,markout_1s_ticks,markout_10s_ticks\n";
     for (const auto& f : fills) {
       csv << f.timestamp_ns << ',' << (f.side == ob::Side::Buy ? 'B' : 'S') << ',' << f.price

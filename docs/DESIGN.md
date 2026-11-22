@@ -28,7 +28,8 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Markouts + `mm_sim` tool; first simulation on real data | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/markout.cpp`, `cpp/tools/mm_sim.cpp` | done (4c), full day (D27) |
 | Volatility estimator (sigma^2 for Avellaneda-Stoikov) | `cpp/include/orderbook/sim/volatility.hpp`, `cpp/src/sim/volatility.cpp` | done (5a) |
 | Strategy interface + naive strategy, split from the simulator | `cpp/include/orderbook/sim/strategy.hpp` | done (5b) |
-| Quoting strategy (Avellaneda-Stoikov), P&L attribution | — | milestone 5 |
+| Avellaneda-Stoikov strategy + `mm_sim --as` | `cpp/include/orderbook/sim/avellaneda_stoikov.hpp`, `cpp/src/sim/avellaneda_stoikov.cpp` | done (5c), full day (D31) |
+| Microprice, P&L attribution | — | milestone 5 (5d, 5e) |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -308,6 +309,40 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Run-time choice (`virtual`) over compile-time (template):** an abstract base class with one pure virtual function is the clearest way to swap strategies, and the indirect call costs nanoseconds on a path that already takes ~190 ns per message. **Later (optimization milestone):** make the simulator a template on the strategy type, so the call can be inlined, and measure the difference with Google Benchmark.
 - **Refactor check:** the 16 existing simulator tests pass unchanged, and the full-day fills files at 0, 50 and 1000 µs are byte-identical to the ones from before the split (D27 numbers unchanged).
 
+### D31. Avellaneda-Stoikov, adapted to a one-tick market
+
+- **Formula (ticks):** risk = γ·σ²·H; reservation = mid − q·risk; half spread = base + risk/2; bid/ask = reservation ∓ half spread, rounded to the nearest cent. The simulator then holds both at or behind the touch (D30).
+- **Choices:**
+  - **q in lots** (one lot = one 100-share quote): AS's q counts units of risk. In shares, the widening term would be a 1/100 of a lot's lean, i.e. nothing.
+  - **Fixed holding time H = 10 s** instead of "time to the close": in the original the lean fades to zero towards 16:00, the opposite of what a desk wants. 10 s is about where the markouts stop getting worse (D27).
+  - **Fixed base half spread (0.5 cent)** instead of estimating k: for small γ, AS's (2/γ)·ln(1 + γ/k) ≈ 2/k, a constant. Half a cent means a flat book joins a 1-cent market. Estimating k from fill rates is a later refinement.
+  - **σ² on a 1 s grid over 5 minutes** (D29). It reads ~15 % low against 10 s, but a constant factor is absorbed by γ, and 1 s gives 10x the samples.
+  - **Nearest-cent rounding:** always rounding bids down and asks up would step back from the touch whenever the widening is a fraction of a cent, even when flat.
+  - **No quotes until σ² is ready.** In practice it's ready long before 09:31 (the strategy is asked from the first two-sided book).
+  - **γ is set by "cents of lean per lot at average volatility"** (`mm_sim --as 0.2`), using AAPL's day-average σ² = 40,000 ticks²/s, so runs are comparable without thinking in units of 1/tick.
+- **What it becomes on AAPL:** the spread is one tick and we never improve on the touch, so leaning can't make the ask more aggressive when long. The only effect is stepping the bid (or, short, the ask) back from the touch, by an amount that grows with inventory and volatility. On a stock with a wide spread the full formula would act.
+- **Full day, AAPL, 30 Dec 2019** (cents per share; markouts + good for us):
+
+  | latency | lean / lot | fills | shares | max pos | P&L | P&L / share | markout 0 | 10 s | 60 s |
+  |---|---|---|---|---|---|---|---|---|---|
+  | 0 | naive | 8,140 | 468.5 K | 500 | −$3,796 | −0.81 | +0.55 | −0.85 | −1.01 |
+  | 0 | 0.1 ¢ | 8,060 | 465.1 K | 500 | −$3,752 | −0.81 | +0.56 | −0.83 | −0.97 |
+  | 0 | 0.2 ¢ | 7,798 | 453.8 K | 499 | −$3,501 | −0.77 | +0.57 | −0.80 | −0.83 |
+  | 0 | 0.5 ¢ | 6,878 | 407.4 K | 487 | −$2,913 | −0.72 | +0.60 | −0.84 | −0.82 |
+  | 0 | 1.0 ¢ | 5,680 | 342.4 K | 403 | −$2,315 | −0.68 | +0.61 | −0.83 | −0.75 |
+  | 50 µs | naive | 8,111 | 469.8 K | 500 | −$3,366 | −0.72 | +0.50 | −1.01 | −1.00 |
+  | 50 µs | 0.1 ¢ | 8,041 | 468.2 K | 500 | −$3,179 | −0.68 | +0.51 | −0.99 | −0.98 |
+  | 50 µs | 0.2 ¢ | 7,798 | 457.5 K | 500 | −$3,215 | −0.70 | +0.52 | −0.97 | −0.92 |
+  | 50 µs | 0.5 ¢ | 6,983 | 413.5 K | 500 | −$2,803 | −0.68 | +0.55 | −0.97 | −0.88 |
+  | 50 µs | 1.0 ¢ | 5,802 | 348.4 K | 464 | −$2,732 | −0.78 | +0.56 | −0.98 | −0.99 |
+
+- **Reading it:**
+  - **It still loses everywhere.** Most of the smaller loss comes from trading less (468 K → 342 K shares), not from trading better.
+  - **The 10 s markout doesn't move** (−0.85 → −0.83 at 0 µs). That's the adverse selection, and AS isn't built to see it: it reacts to *our* inventory, not to who is on the other side. This was the expectation before the run.
+  - **What it does fix is inventory:** max position falls (500 → 403), and the 60 s markout improves (−1.01 → −0.75), because we stop adding to a position as the price runs against it.
+  - **At 50 µs, P&L per share is within noise** across all settings. One stock on one day can't separate a few hundredths of a cent.
+- **Next:** the P&L split (spread / adverse selection / inventory) will show this directly. The adverse-selection part needs a signal about the other side, which is the microprice (5d) and the trend/range read (milestone 6).
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -323,4 +358,5 @@ cmake --preset release && cmake --build --preset release
 ./build/release/cpp/itch_stats data/itch/12302019.NASDAQ_ITCH50
 ./build/release/cpp/itch_replay data/itch/12302019.NASDAQ_ITCH50 AAPL QQQ MSFT
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50   # latency in µs
+./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --as 0.2   # Avellaneda-Stoikov, 0.2 cents lean per lot
 ```
