@@ -173,6 +173,7 @@ void Simulator::decide(QuoteSide& q, std::optional<Price> target, std::uint64_t 
   if (heading_to == target) {
     return;
   }
+  ++quote_messages_;
   q.pending = true;
   q.pending_price = target;
   q.pending_at_ns = now_ns + config_.latency_ns;

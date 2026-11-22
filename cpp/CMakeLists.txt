@@ -33,6 +33,7 @@ add_executable(orderbook_tests
   tests/volatility_test.cpp
   tests/avellaneda_stoikov_test.cpp
   tests/imbalance_test.cpp
+  tests/pull_when_thin_test.cpp
 )
 target_link_libraries(orderbook_tests PRIVATE orderbook GTest::gtest_main)
 orderbook_warnings(orderbook_tests)

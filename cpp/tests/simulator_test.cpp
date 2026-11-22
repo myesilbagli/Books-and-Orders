@@ -199,6 +199,20 @@ TEST(SimulatorTest, TradeThroughLeavesNothingAtOurPrice) {
   EXPECT_EQ(sim.fills()[0].shares_left, 0u);
 }
 
+// --- messages ----------------------------------------------------------------------------
+
+TEST(SimulatorTest, CountsEveryQuoteMessageSent) {
+  Simulator sim(config());
+  open_market(sim);
+  EXPECT_EQ(sim.quote_messages(), 2u);                // join bid, join ask
+  feed(sim, add(kAapl, 3, 'B', 100, 9'999));          // not the best bid: nothing to do
+  EXPECT_EQ(sim.quote_messages(), 2u);
+  feed(sim, add(kAapl, 4, 'B', 100, 10'001));         // better bid: move up
+  EXPECT_EQ(sim.quote_messages(), 3u);
+  feed(sim, deleted(kAapl, 2));                       // ask side gone: pull our ask
+  EXPECT_EQ(sim.quote_messages(), 5u);                // pull ask + pull bid (one-sided)
+}
+
 // --- the mid series ------------------------------------------------------------------
 
 TEST(SimulatorTest, RecordsTheMidOnlyWhenItChanges) {

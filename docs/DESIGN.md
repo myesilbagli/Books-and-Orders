@@ -31,7 +31,8 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Avellaneda-Stoikov strategy + `mm_sim --as` | `cpp/include/orderbook/sim/avellaneda_stoikov.hpp`, `cpp/src/sim/avellaneda_stoikov.cpp` | done (5c), full day (D31) |
 | Queue-imbalance study + `imbalance_study` tool | `cpp/include/orderbook/sim/imbalance.hpp`, `cpp/src/sim/imbalance.cpp`, `cpp/tools/imbalance_study.cpp` | done (5d-a), D32 |
 | Book context on every fill (touch share, shares left) + grouped markouts in `mm_sim` | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/tools/mm_sim.cpp` | done (5d-b1), D33 |
-| Pull rule / microprice in the strategy, P&L attribution | — | milestone 5 (5d-b2..4, 5e) |
+| Pull-when-thin wrapper, `mm_sim --pull`, quote message count | `cpp/include/orderbook/sim/pull_when_thin.hpp`, `cpp/include/orderbook/sim/simulator.hpp`, `cpp/tools/mm_sim.cpp` | done (5d-b2), D34 |
+| P&L attribution | — | milestone 5 (5e) |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -399,6 +400,31 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - The 2,000+ shares-left bucket (5 fills) shows extreme numbers; with that few fills it means nothing.
 - **Accounting check:** the totals (8,140 fills, −$3,796.21) are unchanged; recording the context doesn't change behaviour.
 
+### D34. "Pull when the queue is thin": a real signal that doesn't turn into a better strategy
+
+- **Rule:** a wrapper (decorator) around any strategy. It asks the inner strategy where to quote, then drops a side whose share of the shares at the touch is below θ. The inner strategy is asked on every message, so its state (AS's volatility window) keeps updating. It only ever removes a side, never adds one.
+- **Floating-point catch:** computing the ask share as `1 − bid_share` turns 0.8 into 0.1999…, which pulled an ask exactly at the threshold while the matching bid stayed. Each share is now divided out on its own, with a test for both sides.
+- **New metric, quote messages:** every new quote, price change or pull sent. Exchanges watch message rates and order-to-trade ratios, and each pull and rejoin gives up our place in the queue.
+- **Full day, AAPL, 0 µs unless noted** (cents per share):
+
+  | strategy | fills | shares | msgs / fill | P&L | P&L / share | 0 | 100 ms | 1 s | 10 s | level broke |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | naive | 8,140 | 468 K | 16.7 | −$3,796 | −0.81 | +0.55 | −0.42 | −0.65 | −0.85 | 56 % |
+  | pull θ = 0.1 | 5,818 | 411 K | 26.6 | −$3,302 | −0.80 | +0.56 | −0.43 | −0.67 | −0.80 | 55 % |
+  | pull θ = 0.2 | 4,562 | 340 K | 36.9 | −$2,998 | −0.88 | +0.58 | −0.43 | −0.67 | −0.88 | 55 % |
+  | pull θ = 0.3 | 3,129 | 242 K | 63.5 | −$1,619 | −0.67 | +0.61 | −0.44 | −0.73 | −0.78 | 53 % |
+  | AS 0.5 ¢ + pull 0.2 | 3,958 | 299 K | 49.7 | −$2,510 | −0.84 | +0.63 | −0.39 | −0.65 | −0.86 | 55 % |
+  | naive, 50 µs | 8,111 | 470 K | 16.7 | −$3,366 | −0.72 | +0.50 | −0.50 | −0.75 | −1.01 | 61 % |
+  | pull 0.2, 50 µs | 5,558 | 361 K | 30.7 | −$3,138 | −0.87 | +0.52 | −0.53 | −0.81 | −1.08 | 61 % |
+
+- **Reading it:**
+  - **The markouts don't improve.** At 100 ms and 1 s every pull setting is the same as naive or slightly worse, even though D33 showed thin-touch fills are worse. The smaller loss in dollars comes from trading less (468 K → 242 K shares), as with AS (D31). P&L per share moves around between −0.67 and −0.88 with no pattern: noise.
+  - **The bad fills just move.** About 55 % of our shares are still filled as the level breaks, with or without the rule. Pulling a thin side and rejoining when it thickens puts us at the back of the queue again, so we're still the last order standing when the level is eaten. D33's thin-touch fills were a symptom; the cause is queue position.
+  - **It costs messages:** 16.7 → 63.5 quote messages per fill. A real exchange would notice, and every rejoin is a lost place in line.
+  - **Lesson: a signal that predicts isn't yet a strategy.** Acting on it changes which fills we get, and the replay has to show whether that helps. Here it didn't.
+- **Caveat, not yet checked:** one aggressive order that eats a level shows up as several executions, likely with the same timestamp. At 0 µs the simulator can react between them, which a real system can't (it sees the sweep after it's done). That would flatter the 0 µs pull results, so the real effect is at most as good as shown.
+- **What this points to:** queue position (joining early, not giving up a place) and the slower part of the loss (10-60 s), which no queue signal touches. Microprice β is skipped: D32 already shows it would barely move a quote that only joins or steps back from the touch.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -415,5 +441,6 @@ cmake --preset release && cmake --build --preset release
 ./build/release/cpp/itch_replay data/itch/12302019.NASDAQ_ITCH50 AAPL QQQ MSFT
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50   # latency in µs
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --as 0.2   # Avellaneda-Stoikov, 0.2 cents lean per lot
+./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --pull 0.2   # no quote on a side under 20% of the touch
 ./build/release/cpp/imbalance_study data/itch/12302019.NASDAQ_ITCH50 AAPL   # does queue imbalance predict the mid?
 ```

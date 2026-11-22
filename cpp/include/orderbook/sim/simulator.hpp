@@ -60,6 +60,9 @@ class Simulator {
   [[nodiscard]] const std::optional<VirtualOrder>& ask() const { return ask_.live; }
 
   [[nodiscard]] std::int64_t inventory() const { return inventory_; }  // shares, + is long
+  // Every new quote, price change or pull we sent: what an exchange counts against us
+  // (message rate, order-to-trade ratio), and each one gives up our place in a queue.
+  [[nodiscard]] std::uint64_t quote_messages() const { return quote_messages_; }
   // Money in ticks x shares ($0.0001 per share): sells add, buys subtract.
   [[nodiscard]] std::int64_t cash_ticks() const { return cash_; }
   // Mark-to-market: cash plus inventory valued at the mid when quoting ended, in dollars.
@@ -84,6 +87,7 @@ class Simulator {
   std::vector<MidPoint> mids_;
   std::int64_t inventory_ = 0;
   std::int64_t cash_ = 0;
+  std::uint64_t quote_messages_ = 0;
   std::optional<Price> last_mid_x2_;  // bid + ask: twice the mid, so it stays an integer
   NaiveStrategy naive_;               // used when no strategy is given
   Strategy* strategy_;                // a pointer, not a reference, so it can point at naive_

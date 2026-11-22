@@ -1,12 +1,14 @@
 // mm_sim: run the naive market-making simulation for one stock over an ITCH file and
 // report fills, inventory, P&L and markouts.
 //
-//   ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 [fills.csv] [--as 0.2]
+//   ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 [fills.csv]
+//                             [--as 0.2] [--pull 0.2]
 //
 // The third argument is the latency in microseconds. Without --as the naive strategy
 // runs (join the touch); --as <cents> runs Avellaneda-Stoikov with gamma set so that,
 // at AAPL's average volatility on 30 Dec 2019, one lot (one quote) leans the quotes by
-// that many cents (D31). Quoting runs 09:31-16:00 ET: the
+// that many cents (D31). --pull <share> wraps either one: no quote on a side whose share
+// of the shares at the touch is below <share> (D34). Quoting runs 09:31-16:00 ET: the
 // first minute is skipped because the opening auction (cross) works by different rules
 // than the continuous book the simulator models.
 
@@ -14,6 +16,7 @@
 #include "orderbook/itch/messages.hpp"
 #include "orderbook/itch/reader.hpp"
 #include "orderbook/sim/avellaneda_stoikov.hpp"
+#include "orderbook/sim/pull_when_thin.hpp"
 #include "orderbook/sim/simulator.hpp"
 
 #include <algorithm>
@@ -106,17 +109,21 @@ std::string clock_text(std::uint64_t ns) {
 int main(int argc, char* argv[]) {
   if (argc < 4) {
     std::cerr << "usage: " << argv[0]
-              << " <itch-file> <SYMBOL> <latency_us> [fills.csv] [--as <cents per lot>]\n";
+              << " <itch-file> <SYMBOL> <latency_us> [fills.csv] [--as <cents per lot>]"
+              << " [--pull <touch share>]\n";
     return 2;
   }
   const std::string symbol = argv[2];
   const std::uint64_t latency_ns = std::strtoull(argv[3], nullptr, 10) * 1000;
   std::optional<std::string> csv_path;
   std::optional<double> as_lean_cents;
+  std::optional<double> pull_share;
   for (int i = 4; i < argc; ++i) {
     const std::string arg = argv[i];
     if (arg == "--as" && i + 1 < argc) {
       as_lean_cents = std::strtod(argv[++i], nullptr);
+    } else if (arg == "--pull" && i + 1 < argc) {
+      pull_share = std::strtod(argv[++i], nullptr);
     } else {
       csv_path = arg;
     }
@@ -156,7 +163,18 @@ int main(int argc, char* argv[]) {
   } else {
     strategy = std::make_unique<ob::sim::NaiveStrategy>();
   }
-  ob::sim::Simulator sim(config, *strategy);
+  // The pull rule wraps whichever strategy was picked. Declared after `strategy`, so it's
+  // destroyed first: it never outlives the strategy it points to.
+  std::unique_ptr<ob::sim::PullWhenThin> pull;
+  ob::sim::Strategy* driver = strategy.get();
+  if (pull_share) {
+    pull = std::make_unique<ob::sim::PullWhenThin>(*strategy, *pull_share);
+    driver = pull.get();
+    std::ostringstream name;
+    name << strategy_name << ", pulled below " << *pull_share * 100 << "% of the touch";
+    strategy_name = name.str();
+  }
+  ob::sim::Simulator sim(config, *driver);
 
   const auto start = std::chrono::steady_clock::now();
   ob::itch::ItchReader reader(file.data(), file.size());
@@ -195,7 +213,13 @@ int main(int argc, char* argv[]) {
             << " sh, " << sells << " sells / " << sold << " sh)\n"
             << "inventory at end: " << sim.inventory() << " sh  (max |position| " << max_position
             << " sh)\n"
-            << std::fixed << std::setprecision(2) << "P&L:              $" << sim.pnl_dollars()
+            << "quote messages:   " << sim.quote_messages() << "  ("
+            << std::fixed << std::setprecision(1)
+            << (fills.empty() ? 0.0
+                              : static_cast<double>(sim.quote_messages()) /
+                                    static_cast<double>(fills.size()))
+            << " per fill)\n"
+            << std::setprecision(2) << "P&L:              $" << sim.pnl_dollars()
             << "  (inventory marked at the 16:00 mid, no fees or rebates)\n";
 
   // Markouts for all fills, then split by what the book looked like when we were filled
