@@ -39,7 +39,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Fills CSV + block-bootstrap intervals (`research/bootstrap.py`) | `cpp/include/orderbook/sim/fills_csv.hpp`, `cpp/src/sim/fills_csv.cpp`, `research/bootstrap.py`, `research/test_bootstrap.py` | done (5c), D37 |
 | Milestone 5 results page + reproduce script | `docs/RESULTS.md`, `research/run_m5.sh` | done (5d) |
 | Time bars (OHLCV from the mid) for the indicators | `cpp/include/orderbook/sim/bars.hpp`, `cpp/src/sim/bars.cpp` | done (6b-1), D38 |
-| Indicators (VWAP, SMA, EMA, Bollinger, Stoch RSI) | — | milestone 6 (6b) |
+| Indicators: SMA, EMA, Bollinger, RSI, Stochastic RSI, VWAP (streaming) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/src/sim/indicators.cpp` | done (6b-2), D39 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -509,6 +509,25 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Aligned to the clock:** bars are whole intervals since midnight, so the 1-min bars are 09:30:00-09:31:00 and so on, as on a chart.
 - **No look-ahead:** a bar is handed out only when an event at or after its end arrives, so nothing can use it before it has closed. A change exactly at a bar's end belongs to the next bar and is that bar's open (the same "in force at or before" rule as `mid_x2_at`). This is the most common backtest bug, and a test pins it down.
 - **Trade-off:** each call returns a `std::vector` of the bars it closed. That's simple to use and test, and allocates only when a bar closes. A callback would avoid the vector, if profiling ever shows it matters.
+
+### D39. Indicators: streaming, TradingView's definitions, defined edge cases
+
+- **Set:** SMA, EMA (founder uses 9/21), Bollinger (20, 2) with %B, RSI (14), Stochastic RSI (14, 14, 3, 3), VWAP. The defaults are the founder's chart settings; every length is a parameter, so trials can try others.
+- **Streaming:** each indicator takes one closed bar's value at a time (`update`) and answers `value()`, which is `nullopt` until it is warm. It never sees the future, and the bar builder (D38) only hands out closed bars.
+- **TradingView's definitions,** so the numbers can be checked against a chart:
+  - EMA, alpha = 2/(n+1), seeded with the SMA of its first n values. Starting from the first value would weight that one bar too much for a while.
+  - Bollinger uses the population standard deviation (÷ n).
+  - RSI uses Wilder's smoothing (alpha = 1/n), seeded with the plain average of the first n changes.
+  - Stochastic RSI is the RSI's place in its last-n range, then %K = SMA 3, %D = SMA 3 of %K.
+- **Warm-up:** Stochastic RSI (14, 14, 3, 3) needs 32 closes. RSI is ready at 15, the first stoch at 28, %K at 30, %D at 32. That's 32 minutes on 1-minute bars, so the bars are fed from pre-market (founder, 23 Nov 2026: pre-market can be used). VWAP's start time is a parameter: 09:30 by default, earlier to include pre-market, both to be tried.
+- **Edge cases, defined instead of left to 0/0** (common on a 1-second chart):
+  - No move at all gives RSI 50.
+  - A flat RSI gives Stochastic RSI 50.
+  - A flat Bollinger window has bands on the mean and %B 0.5.
+  - Wilder's averages only decay after a move, so a quiet stretch after one keeps the old reading rather than going to 50. That is the standard definition.
+- **Bollinger's standard deviation is computed in two passes** (mean, then squared gaps from it), not from running sums. At ~29 M ticks, mean(x²) − mean(x)² subtracts two numbers near 8 × 10¹⁴ to find a variance of a few ticks², and a double can't hold that difference (catastrophic cancellation). That's O(n) per bar with n ≈ 20, which is nothing. A test pins it with AAPL-sized prices moving one tick.
+- **VWAP in integers:** Σ price × shares in int64 is exact (about 10¹³ for a day, against a limit of about 9 × 10¹⁸). It is updated on every trade, not per bar.
+- **Composable:** SMA averages any series, which is how Stochastic RSI builds %K and %D. Each class is small and has no virtual calls; a trial owns the ones it needs.
 
 ## Build
 

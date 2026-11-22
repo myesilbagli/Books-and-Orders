@@ -12,6 +12,7 @@ add_library(orderbook STATIC
   src/sim/pnl.cpp
   src/sim/fills_csv.cpp
   src/sim/bars.cpp
+  src/sim/indicators.cpp
   src/itch/messages.cpp
   src/itch/mapped_file.cpp
   src/itch/scan.cpp
@@ -40,6 +41,7 @@ add_executable(orderbook_tests
   tests/pnl_test.cpp
   tests/fills_csv_test.cpp
   tests/bars_test.cpp
+  tests/indicators_test.cpp
 )
 target_link_libraries(orderbook_tests PRIVATE orderbook GTest::gtest_main)
 orderbook_warnings(orderbook_tests)
