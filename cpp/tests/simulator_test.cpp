@@ -160,6 +160,45 @@ TEST(SimulatorTest, RequotesAfterAFullFill) {
   EXPECT_EQ(shares_ahead(sim.replay().book(kAapl), *sim.bid()), 100u);  // behind #1 again
 }
 
+// --- what the book looked like when we were filled (D33) --------------------------------
+
+// Bid side: #1 100 and #3 300 at 1.0000, ask #2 100. Touch share 400 / 500 = 0.8.
+// #3 (behind us) executes 60: 340 shares stay at our price.
+TEST(SimulatorTest, FillRecordsTheBookOnOurSide) {
+  Simulator sim(config());
+  open_market(sim);
+  feed(sim, add(kAapl, 3, 'B', 300, 10'000));
+  feed(sim, executed(kAapl, 3, 60));
+  ASSERT_EQ(sim.fills().size(), 1u);
+  EXPECT_DOUBLE_EQ(sim.fills()[0].touch_share, 0.8);
+  EXPECT_EQ(sim.fills()[0].shares_left, 340u);
+}
+
+// Ask side: #2 and #4 at 1.0010 (200), bid #1 100. Share 200 / 300; #4 fully executes.
+TEST(SimulatorTest, AskFillLooksAtTheAskSide) {
+  Simulator sim(config());
+  open_market(sim);
+  feed(sim, add(kAapl, 4, 'S', 100, 10'010));
+  feed(sim, executed(kAapl, 4, 100));
+  ASSERT_EQ(sim.fills().size(), 1u);
+  EXPECT_DOUBLE_EQ(sim.fills()[0].touch_share, 200.0 / 300.0);
+  EXPECT_EQ(sim.fills()[0].shares_left, 100u);
+}
+
+// Picked off through a stale quote: nobody real is left at our price.
+TEST(SimulatorTest, TradeThroughLeavesNothingAtOurPrice) {
+  Simulator sim(config(50'000));
+  open_market(sim, 1000);
+  feed(sim, add(kAapl, 9, 'S', 100, 10'020, 60'000));
+  feed(sim, deleted(kAapl, 1, 70'000));
+  feed(sim, add(kAapl, 4, 'B', 100, 9'999, 71'000));
+  feed(sim, executed(kAapl, 4, 100, 80'000));
+  ASSERT_EQ(sim.fills().size(), 1u);
+  EXPECT_EQ(sim.fills()[0].price, 10'000);
+  EXPECT_DOUBLE_EQ(sim.fills()[0].touch_share, 0.5);  // bid 100 @ 0.9999 vs ask 100
+  EXPECT_EQ(sim.fills()[0].shares_left, 0u);
+}
+
 // --- the mid series ------------------------------------------------------------------
 
 TEST(SimulatorTest, RecordsTheMidOnlyWhenItChanges) {

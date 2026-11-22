@@ -68,5 +68,29 @@ TEST(MarkoutTest, NoMidMeansNoMarkout) {
   EXPECT_FALSE(markout_ticks(buy, kMids, 0).has_value());
 }
 
+// --- averages ----------------------------------------------------------------------------
+
+// Buy 100 at 1.0000 when the mid is 1.0005: +5 ticks. Sell 300 at 1.0000 at the same mid:
+// -5 ticks. Weighted by shares: (100 x 5 + 300 x -5) / 400 = -2.5.
+TEST(MarkoutTest, AverageIsWeightedByShares) {
+  const std::vector<Fill> fills = {
+      {.timestamp_ns = 100, .side = Side::Buy, .price = 10'000, .quantity = 100},
+      {.timestamp_ns = 150, .side = Side::Sell, .price = 10'000, .quantity = 300},
+  };
+  EXPECT_DOUBLE_EQ(*average_markout_ticks(fills, kMids, 0), -2.5);
+}
+
+TEST(MarkoutTest, AverageSkipsFillsWithNoMid) {
+  const std::vector<Fill> fills = {
+      {.timestamp_ns = 50, .side = Side::Buy, .price = 1, .quantity = 1'000},  // before any mid
+      {.timestamp_ns = 100, .side = Side::Buy, .price = 10'000, .quantity = 100},
+  };
+  EXPECT_DOUBLE_EQ(*average_markout_ticks(fills, kMids, 0), 5.0);
+}
+
+TEST(MarkoutTest, NoFillsNoAverage) {
+  EXPECT_FALSE(average_markout_ticks({}, kMids, 0).has_value());
+}
+
 }  // namespace
 }  // namespace ob::sim

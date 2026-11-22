@@ -77,8 +77,31 @@ void Simulator::check_fill(QuoteSide& q, const Order& executed, Quantity shares,
     return;
   }
   const Price price = q.live->price;
-  fills_.push_back(
-      Fill{.timestamp_ns = now_ns, .side = q.side, .price = price, .quantity = filled});
+
+  // What the book looked like on our side as we were filled. This runs before the replay
+  // applies the execution, so the executed shares are still in the book: take them off
+  // to get what's left at our price (when it traded at our price; a trade-through
+  // happened below us). A thin touch, or nothing left behind us, means the level is
+  // about to break and the price to move against us (D33).
+  const OrderBook& book = replay_.book(config_.locate);
+  const Side other = q.side == Side::Buy ? Side::Sell : Side::Buy;
+  const auto our_best = q.side == Side::Buy ? book.best_bid() : book.best_ask();
+  const auto other_best = q.side == Side::Buy ? book.best_ask() : book.best_bid();
+  const std::uint64_t ours_at_touch = our_best ? book.volume_at(q.side, *our_best) : 0;
+  const std::uint64_t other_at_touch = other_best ? book.volume_at(other, *other_best) : 0;
+  const std::uint64_t at_touch = ours_at_touch + other_at_touch;
+  const std::uint64_t at_our_price = book.volume_at(q.side, price);
+  const std::uint64_t leaving = executed.price == price ? shares : 0;
+
+  fills_.push_back(Fill{
+      .timestamp_ns = now_ns,
+      .side = q.side,
+      .price = price,
+      .quantity = filled,
+      .touch_share = at_touch ? static_cast<double>(ours_at_touch) / static_cast<double>(at_touch)
+                              : 0.0,
+      .shares_left = at_our_price > leaving ? at_our_price - leaving : 0,  // unsigned: no < 0
+  });
 
   // Buying adds shares and spends money; selling the reverse. Quantity is unsigned, so
   // convert before negating.

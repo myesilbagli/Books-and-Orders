@@ -30,7 +30,8 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Strategy interface + naive strategy, split from the simulator | `cpp/include/orderbook/sim/strategy.hpp` | done (5b) |
 | Avellaneda-Stoikov strategy + `mm_sim --as` | `cpp/include/orderbook/sim/avellaneda_stoikov.hpp`, `cpp/src/sim/avellaneda_stoikov.cpp` | done (5c), full day (D31) |
 | Queue-imbalance study + `imbalance_study` tool | `cpp/include/orderbook/sim/imbalance.hpp`, `cpp/src/sim/imbalance.cpp`, `cpp/tools/imbalance_study.cpp` | done (5d-a), D32 |
-| Microprice in the strategy, P&L attribution | — | milestone 5 (5d-b, 5e) |
+| Book context on every fill (touch share, shares left) + grouped markouts in `mm_sim` | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/tools/mm_sim.cpp` | done (5d-b1), D33 |
+| Pull rule / microprice in the strategy, P&L attribution | — | milestone 5 (5d-b2..4, 5e) |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -366,6 +367,37 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - **The weighted mid overreacts about 4x:** it predicts −1.13 cents where −0.31 happens. Its prediction would need scaling by about β ≈ 0.25. This is why Stoikov (2018) estimates the micro-price from data instead of using the weighted mid.
   - **At 10 s it's gone:** every decile is about 50 % up / 47 % down, and the averages (+0.0 to +0.3) are just the day's upward drift. Imbalance is a sub-second signal.
 - **What that means for the strategy:** imbalance can help with the part of adverse selection that happens in the first second (markout +0.55 at the fill → −0.65 at 1 s, D27). It can't explain the further loss out to 10-60 s; that needs a slower signal (milestone 6).
+
+### D33. What the book looked like when we were filled
+
+- **Question:** 4a showed imbalance predicts the next second on average. But we aren't filled at average moments: being filled at the back of a thin queue means the whole level is being eaten. So measure the fills themselves, split by the book at that moment.
+- **Recorded on every fill** (before the execution is applied to the book, D25):
+  - `touch_share`: our side's shares at the touch / both sides' (for a bid fill, the imbalance I; for an ask fill, 1 − I).
+  - `shares_left`: real shares still at our price after this execution, i.e. the queue behind us. 0 means the level broke with our fill (or we were traded through).
+- **Naive strategy, full day, 0 µs** (cents per share; shares = share of all shares we traded):
+
+  | our touch share | fills | shares | 0 | 100 ms | 1 s | 10 s |
+  |---|---|---|---|---|---|---|
+  | 0-20 % (thin) | 2,387 | 13 % | +0.37 | −0.56 | −0.79 | −0.79 |
+  | 20-40 % | 2,219 | 32 % | +0.49 | −0.45 | −0.71 | −1.02 |
+  | 40-60 % | 1,989 | 31 % | +0.58 | −0.40 | −0.57 | −0.84 |
+  | 60-80 % | 971 | 15 % | +0.69 | −0.36 | −0.67 | −1.11 |
+  | 80-100 % (thick) | 574 | 9 % | +0.63 | −0.24 | −0.55 | +0.12 |
+
+  | shares left at our price | fills | shares | 0 | 100 ms | 1 s | 10 s |
+  |---|---|---|---|---|---|---|
+  | 0 (level broke) | 4,242 | 56 % | +0.39 | −0.51 | −0.75 | −0.95 |
+  | 1-499 | 3,798 | 43 % | +0.74 | −0.31 | −0.54 | −0.73 |
+  | 500+ | 100 | 1 % | too few to read | | | |
+
+  At 50 µs the pattern is the same (level broke: 61 % of shares, −0.83 at 1 s vs −0.64).
+- **Reading it:**
+  - **Thin touch = worse fills in the first second.** At 100 ms the markout rises steadily from thin to thick (−0.56 → −0.24). At 10 s the buckets no longer line up: the effect is short-lived, as in D32.
+  - **56 % of our shares were filled as the level broke.** Joining at the back of the queue means we're usually filled only when the whole level is consumed: the moment the price is about to move against us. Those fills are about 0.2 cents worse at 1 s than fills with someone left behind us. Queue position has value: being early in a queue (joining a new level first, not giving up a place by requoting) matters as much as the price.
+  - **Thin-touch fills are small:** 29 % of fills but 13 % of shares; we're often filled in part as a small level is taken.
+  - **Not a fix on its own:** every bucket is still negative at 10 s. Pulling from thin touches can trim the first-second loss, not the slower one.
+  - The 2,000+ shares-left bucket (5 fills) shows extreme numbers; with that few fills it means nothing.
+- **Accounting check:** the totals (8,140 fills, −$3,796.21) are unchanged; recording the context doesn't change behaviour.
 
 ## Build
 

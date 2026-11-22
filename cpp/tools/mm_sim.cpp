@@ -61,6 +61,38 @@ std::optional<std::uint16_t> find_locate(const ob::itch::MappedFile& file,
   return std::nullopt;
 }
 
+const std::uint64_t kHorizons[] = {0, kSecond / 10, kSecond, 10 * kSecond, 60 * kSecond};
+const char* const kHorizonNames[] = {"0", "100ms", "1s", "10s", "60s"};
+
+// One row per group of fills: how many, their share of all shares traded, and the
+// share-weighted markout at each horizon in cents (1 cent = 100 ticks).
+void print_group(const char* label, const std::vector<ob::sim::Fill>& group,
+                 std::uint64_t all_shares, const std::vector<ob::sim::MidPoint>& mids) {
+  std::uint64_t shares = 0;
+  for (const auto& f : group) {
+    shares += f.quantity;
+  }
+  std::cout << "  " << std::left << std::setw(12) << label << std::right << std::setw(7)
+            << group.size() << std::fixed << std::setprecision(0) << std::setw(6)
+            << (all_shares ? 100.0 * static_cast<double>(shares) / static_cast<double>(all_shares)
+                           : 0.0)
+            << "%" << std::setprecision(3);
+  for (const auto h : kHorizons) {
+    const auto mk = ob::sim::average_markout_ticks(group, mids, h);
+    std::cout << std::setw(9) << (mk ? *mk / 100.0 : 0.0);
+  }
+  std::cout << "\n";
+}
+
+void print_header(const char* title) {
+  std::cout << "\n" << title << "\n  " << std::left << std::setw(12) << "" << std::right
+            << std::setw(7) << "fills" << std::setw(7) << "shares";
+  for (const char* name : kHorizonNames) {
+    std::cout << std::setw(9) << name;
+  }
+  std::cout << "\n";
+}
+
 std::string clock_text(std::uint64_t ns) {
   const std::uint64_t s = ns / kSecond;
   std::ostringstream out;
@@ -166,22 +198,36 @@ int main(int argc, char* argv[]) {
             << std::fixed << std::setprecision(2) << "P&L:              $" << sim.pnl_dollars()
             << "  (inventory marked at the 16:00 mid, no fees or rebates)\n";
 
-  // Share-weighted average markout per horizon, in cents per share (1 cent = 100 ticks).
-  const std::uint64_t horizons[] = {0, kSecond / 10, kSecond, 10 * kSecond, 60 * kSecond};
-  const char* names[] = {"0", "100ms", "1s", "10s", "60s"};
-  std::cout << "\nmarkout per share (cents; + good for us, - adverse selection)\n";
-  for (std::size_t h = 0; h < 5; ++h) {
-    double total = 0.0;
-    std::uint64_t shares = 0;
+  // Markouts for all fills, then split by what the book looked like when we were filled
+  // (D33): is a fill from a thin touch, or with nobody left behind us, worse?
+  const std::uint64_t all_shares = bought + sold;
+  print_header("markout per share (cents; + good for us, - adverse selection)");
+  print_group("all", fills, all_shares, sim.mids());
+
+  print_header("by our side's share of the touch (thin -> thick)");
+  for (int b = 0; b < 5; ++b) {
+    std::vector<ob::sim::Fill> group;
     for (const auto& f : fills) {
-      if (const auto mk = ob::sim::markout_ticks(f, sim.mids(), horizons[h])) {
-        total += *mk * f.quantity;
-        shares += f.quantity;
+      const int bucket = std::min(static_cast<int>(f.touch_share * 5), 4);
+      if (bucket == b) {
+        group.push_back(f);
       }
     }
-    std::cout << "  " << std::left << std::setw(6) << names[h] << std::right << std::setw(8)
-              << std::setprecision(3) << (shares ? total / static_cast<double>(shares) / 100.0 : 0.0)
-              << "\n";
+    const std::string label = std::to_string(b * 20) + "-" + std::to_string(b * 20 + 20) + "%";
+    print_group(label.c_str(), group, all_shares, sim.mids());
+  }
+
+  print_header("by real shares left at our price after the fill (none -> many)");
+  const std::uint64_t edges[] = {0, 1, 500, 2000, UINT64_MAX};
+  const char* labels[] = {"0", "1-499", "500-1999", "2000+"};
+  for (int b = 0; b < 4; ++b) {
+    std::vector<ob::sim::Fill> group;
+    for (const auto& f : fills) {
+      if (f.shares_left >= edges[b] && f.shares_left < edges[b + 1]) {
+        group.push_back(f);
+      }
+    }
+    print_group(labels[b], group, all_shares, sim.mids());
   }
   std::cout << std::setprecision(1) << "\nrun time: " << elapsed.count() << " s\n";
 

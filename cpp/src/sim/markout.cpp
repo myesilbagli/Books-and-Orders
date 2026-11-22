@@ -35,4 +35,21 @@ std::optional<double> markout_ticks(const Fill& fill, const std::vector<MidPoint
   return fill.side == Side::Buy ? mid - price : price - mid;
 }
 
+std::optional<double> average_markout_ticks(const std::vector<Fill>& fills,
+                                            const std::vector<MidPoint>& mids,
+                                            std::uint64_t horizon_ns) {
+  double total = 0.0;
+  std::uint64_t shares = 0;
+  for (const Fill& f : fills) {
+    if (const auto mk = markout_ticks(f, mids, horizon_ns)) {
+      total += *mk * static_cast<double>(f.quantity);
+      shares += f.quantity;
+    }
+  }
+  if (shares == 0) {
+    return std::nullopt;
+  }
+  return total / static_cast<double>(shares);
+}
+
 }  // namespace ob::sim
