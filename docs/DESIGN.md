@@ -43,6 +43,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Trades from ITCH (E, printable C, P, Q) + `ChartFeed` (bars + indicators per timeframe) | `cpp/include/orderbook/sim/trades.hpp`, `cpp/src/sim/trades.cpp`, `cpp/include/orderbook/sim/chart_feed.hpp`, `cpp/src/sim/chart_feed.cpp` | done (6b-3a), D40 |
 | Chart CSV + `chart_dump` tool (1 s and 1 min bars with indicators, for checking against a chart) | `cpp/include/orderbook/sim/chart_csv.hpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/tools/chart_dump.cpp` | done (6b-3b), D41 |
 | Cross-check of bars and indicators against Databento | `research/check_chart.py` | done, D42 |
+| One-stock ITCH extract (`itch_extract`): same format, runs in seconds | `cpp/include/orderbook/itch/extract.hpp`, `cpp/src/itch/extract.cpp`, `cpp/tools/itch_extract.cpp` | done (6c-0), D43 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -572,6 +573,17 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - Moving averages barely notice the choice of price. Stochastic RSI does, since it's a ratio of small RSI moves. A rule that fires on a %K threshold could flip near the line depending on mid vs trade.
 - **Opening cross added (`Q`, D40):** with it, volume is identical in all 390 minutes and all 23,400 seconds, and the totals are equal (5,947,543 shares). VWAP at the 09:30 bar's close moves from $289.11 to $289.37. The simulator doesn't use `trade_of`, and the milestone 5 runs were rerun to check: their fills are byte-identical.
 
+### D43. One stock's slice of the file, for fast iteration
+
+- **Why:** every run read the whole 8 GB day (~2 minutes) to simulate one stock. Milestone 6 means trying many ideas, so each try should take seconds.
+- **What:** `itch_extract` copies every message for one stock locate, plus the system-wide ones (locate 0), byte for byte with their length prefixes. The output is an ordinary ITCH file, so every tool runs on it unchanged. The stock's directory message (`R`) carries its own locate, so tools still find it by name.
+- **AAPL, 30 Dec 2019:** 1.52 M of 268.7 M messages, 46 MB (0.6 % of the file).
+  - `mm_sim` takes 0.56 s instead of 129 s.
+  - `chart_dump` takes 0.5 s instead of 75 s.
+  - Fills, the report and the chart CSV are byte-identical to the full-file runs. Nothing outside the stock changes its book, so nothing is lost.
+- **Limit:** a study across stocks still needs the full file (or one extract per stock). For one-stock simulation, the slice is all there is.
+- **Also:** `find_locate` is now a library function with a test. Three tools had their own copy; the new tool uses the library one.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -584,6 +596,7 @@ ctest --preset debug
 
 # a real day (release build; the file lives in data/, which git ignores)
 cmake --preset release && cmake --build --preset release
+./build/release/cpp/itch_extract data/itch/12302019.NASDAQ_ITCH50 AAPL data/itch/12302019.AAPL.ITCH50   # AAPL only, 46 MB: every tool below runs on it in ~1 s
 ./build/release/cpp/itch_stats data/itch/12302019.NASDAQ_ITCH50
 ./build/release/cpp/itch_replay data/itch/12302019.NASDAQ_ITCH50 AAPL QQQ MSFT
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50   # latency in µs

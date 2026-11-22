@@ -19,6 +19,7 @@ add_library(orderbook STATIC
   src/itch/messages.cpp
   src/itch/mapped_file.cpp
   src/itch/scan.cpp
+  src/itch/extract.cpp
 )
 target_include_directories(orderbook PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 orderbook_warnings(orderbook)
@@ -33,6 +34,7 @@ add_executable(orderbook_tests
   tests/itch_reader_test.cpp
   tests/mapped_file_test.cpp
   tests/itch_scan_test.cpp
+  tests/itch_extract_test.cpp
   tests/replay_test.cpp
   tests/sim_queue_test.cpp
   tests/simulator_test.cpp
@@ -76,3 +78,7 @@ orderbook_warnings(imbalance_study)
 add_executable(chart_dump tools/chart_dump.cpp)
 target_link_libraries(chart_dump PRIVATE orderbook)
 orderbook_warnings(chart_dump)
+
+add_executable(itch_extract tools/itch_extract.cpp)
+target_link_libraries(itch_extract PRIVATE orderbook)
+orderbook_warnings(itch_extract)

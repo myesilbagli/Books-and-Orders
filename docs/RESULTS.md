@@ -95,4 +95,7 @@ After that, the optimization phase: more days (Databento), held-out test days, a
 ```bash
 cmake --preset release && cmake --build --preset release
 research/run_m5.sh data/itch/12302019.NASDAQ_ITCH50   # 7 runs + bootstrap tables into data/sim/m5/
+# faster: the same on the AAPL-only slice (identical results, D43)
+./build/release/cpp/itch_extract data/itch/12302019.NASDAQ_ITCH50 AAPL data/itch/12302019.AAPL.ITCH50
+research/run_m5.sh data/itch/12302019.AAPL.ITCH50
 ```
