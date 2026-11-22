@@ -42,6 +42,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Indicators: SMA, EMA, Bollinger, RSI, Stochastic RSI, VWAP (streaming) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/src/sim/indicators.cpp` | done (6b-2), D39 |
 | Trades from ITCH (E, printable C, P) + `ChartFeed` (bars + indicators per timeframe) | `cpp/include/orderbook/sim/trades.hpp`, `cpp/src/sim/trades.cpp`, `cpp/include/orderbook/sim/chart_feed.hpp`, `cpp/src/sim/chart_feed.cpp` | done (6b-3a), D40 |
 | Chart CSV + `chart_dump` tool (1 s and 1 min bars with indicators, for checking against a chart) | `cpp/include/orderbook/sim/chart_csv.hpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/tools/chart_dump.cpp` | done (6b-3b), D41 |
+| Cross-check of bars and indicators against Databento | `research/check_chart.py` | done, D42 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -551,7 +552,25 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - The day's high and low from our 1 min bars are $292.69 / $285.235, against roughly $292.69 / $285.22 on consolidated charts. The mid tracks the traded price.
   - Of the 23,400 regular-session 1 s bars, 47 % have no trade and 26 % have no mid move at all. A trade-price chart would be half empty at 1 s, which is why bars use the mid (D38).
 - **Bug found by looking at the output:** Stochastic RSI printed "-0.00". SMA kept a running total, and adding then subtracting the same doubles leaves rounding dust (0.1 + 0.1 + 0.1 − 0.1 − 0.1 − 0.1 = 2.8 × 10⁻¹⁷). SMA now sums its window afresh each time (n ≤ 21, so it's cheap), and a test pins it. Same lesson as D28: check the output, not just the tests.
-- **Still to check:** individual EMA, VWAP and RSI values against a chart (TradingView, 1 min, 30 Dec 2019). Expect the moving averages within about a cent (mid vs trade price). VWAP will differ more: Nasdaq-only volume and no opening print (D40).
+- **Checked against an independent source in D42** (TradingView has no 1-minute history for 2019).
+
+### D42. Bars and indicators cross-checked against Databento
+
+- **Source:** Databento's XNAS.ITCH OHLCV bars (1 min and 1 s) for AAPL, 30 Dec 2019, 09:00-16:00 ET. They are built from the same Nasdaq feed with someone else's code, from trade prices. Cost $0.008 (approved 23 Nov 2026), 0.2 MB, in `data/databento/` (git-ignored). `research/check_chart.py` does the comparison. It recomputes the indicators from their textbook definitions, independently of the C++.
+- **Volume (tests `trade_of`):**
+  - Identical in 389 of 390 regular-session minutes, and in 23,399 of 23,400 seconds.
+  - The one difference is 09:30:00: 269,367 shares, the opening cross, which we don't read (D40). That's 4.5 % of the day's Nasdaq volume in one print.
+  - So E, printable C and P are exactly Nasdaq's trades. The 16:00 closing cross falls after our last bar.
+- **Indicator code (C++ vs the Python reference, both on our closes):** every value agrees to the CSV's last printed digit (max 0.005 cents for EMAs, 0.005 points for RSI and Stochastic RSI). The C++ is right.
+- **Mid vs trade price (our closes vs theirs):**
+  - Closes: median 0.5 cent, 95 % within 2.5 cents.
+  - The same indicators computed on their trade closes differ from ours as follows (median, 95 %):
+    - EMA 9: 0.27 / 0.82 cents.
+    - EMA 21: 0.22 / 0.64 cents.
+    - RSI: 0.34 / 1.0 points.
+    - Stochastic RSI %K: 1.0 / 4.4 points.
+  - Moving averages barely notice the choice of price. Stochastic RSI does, since it's a ratio of small RSI moves. A rule that fires on a %K threshold could flip near the line depending on mid vs trade.
+- **Open item:** the opening cross is a big, real print at the open. Reading `Q` messages would put it in volume and VWAP.
 
 ## Build
 
@@ -582,4 +601,7 @@ research/.venv/bin/python research/bootstrap.py data/sim/ci/naive_0us.csv data/s
 
 # every milestone 5 number in docs/RESULTS.md: 7 runs in parallel + bootstrap tables
 research/run_m5.sh data/itch/12302019.NASDAQ_ITCH50   # writes data/sim/m5/
+
+# chart bars + indicators vs Databento's bars for the same day (D42; needs the two .dbn.zst files)
+research/.venv/bin/python research/check_chart.py data/sim/chart/AAPL_chart.csv data/databento/AAPL_20191230_XNAS_ohlcv-1m.dbn.zst data/databento/AAPL_20191230_XNAS_ohlcv-1s.dbn.zst
 ```
