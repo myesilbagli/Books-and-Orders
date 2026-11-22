@@ -2,6 +2,7 @@
 
 #include "orderbook/itch/bytes.hpp"
 #include "orderbook/itch/messages.hpp"
+#include "orderbook/sim/trades.hpp"
 
 #include <algorithm>
 
@@ -41,6 +42,17 @@ void Simulator::on_message(const std::uint8_t* p, std::size_t len) {
         check_fill(bid_, *resting, shares, now);
         check_fill(ask_, *resting, shares, now);
       }
+    }
+  }
+
+  // The charts, before the book changes: first close the bars that are over (nothing at
+  // `now` may get into them), then count the trade, whose price for an E is the resting
+  // order's and so must be read before the book removes it (D40, D44).
+  if (ours) {
+    market_.advance(now);
+    const std::optional<Trade> trade = trade_of(p, len, replay_);
+    if (trade) {
+      market_.on_trade(*trade);
     }
   }
 
@@ -135,6 +147,7 @@ void Simulator::requote(std::uint64_t now_ns) {
     if (mid_x2 != last_mid_x2_) {  // only changes: a quiet mid adds nothing to the series
       mids_.push_back(MidPoint{.timestamp_ns = now_ns, .mid_x2 = mid_x2});
       last_mid_x2_ = mid_x2;
+      market_.on_mid(now_ns, mid_x2);  // the charts move with the same mid series
     }
 
     // Asked even outside our hours, so a strategy can warm up; the answer is used below
@@ -144,7 +157,8 @@ void Simulator::requote(std::uint64_t now_ns) {
                           .best_ask = *best_ask,
                           .bid_size = book.volume_at(Side::Buy, *best_bid),
                           .ask_size = book.volume_at(Side::Sell, *best_ask),
-                          .inventory = inventory_};
+                          .inventory = inventory_,
+                          .market = &market_};
     const Quotes wanted = strategy_->quote(view);
 
     const bool open = now_ns >= config_.start_ns && now_ns < config_.end_ns;

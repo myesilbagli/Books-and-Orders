@@ -1,6 +1,7 @@
 #pragma once
 
 #include "orderbook/replay.hpp"
+#include "orderbook/sim/market_state.hpp"
 #include "orderbook/sim/markout.hpp"
 #include "orderbook/sim/queue.hpp"
 #include "orderbook/sim/strategy.hpp"
@@ -16,6 +17,8 @@
 //   1. LOOK:   our quotes and pulls that have reached the exchange by now go live; if the
 //              message is an execution in our stock, check (before the book changes)
 //              whether it would have filled one of our virtual quotes (D24).
+//              For our stock, the charts close the bars that are over and count the
+//              message if it's a trade (D44).
 //   2. APPLY:  hand the message to the replay, so the real books move.
 //   3. DECIDE: if it was our stock, the strategy picks where to quote. Changes reach the
 //              exchange `latency_ns` later; until then the old quote stays live and can
@@ -34,15 +37,17 @@ struct SimConfig {
   std::int64_t max_inventory;     // shares; no quote that could push |position| past it
   std::uint64_t start_ns;         // quote only in [start_ns, end_ns), ns since midnight
   std::uint64_t end_ns;
+  MarketStateConfig market = {};  // charts and VWAP shown to the strategy (D44)
 };
 
 class Simulator {
  public:
   // With the naive strategy (the milestone 4 baseline).
-  explicit Simulator(const SimConfig& config) : config_(config), strategy_(&naive_) {}
+  explicit Simulator(const SimConfig& config)
+      : config_(config), market_(config.market), strategy_(&naive_) {}
   // With any strategy. It's used by reference, not copied: it must outlive the simulator.
   Simulator(const SimConfig& config, Strategy& strategy)
-      : config_(config), strategy_(&strategy) {}
+      : config_(config), market_(config.market), strategy_(&strategy) {}
 
   // A copy's strategy_ could point at the original's naive_, which may be gone.
   Simulator(const Simulator&) = delete;
@@ -53,6 +58,8 @@ class Simulator {
   void on_message(const std::uint8_t* p, std::size_t len);
 
   [[nodiscard]] const Replayer& replay() const { return replay_; }
+  // Our stock's charts and VWAP, as the strategy sees them.
+  [[nodiscard]] const MarketState& market() const { return market_; }
   [[nodiscard]] const std::vector<Fill>& fills() const { return fills_; }
   // Our stock's mid every time it changed, in time order: what markouts are measured on.
   [[nodiscard]] const std::vector<MidPoint>& mids() const { return mids_; }
@@ -80,6 +87,7 @@ class Simulator {
   };
 
   SimConfig config_;
+  MarketState market_;  // our stock's charts, fed on its messages (D44)
   Replayer replay_;
   QuoteSide bid_{.side = Side::Buy};
   QuoteSide ask_{.side = Side::Sell};

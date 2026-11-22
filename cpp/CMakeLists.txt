@@ -16,6 +16,7 @@ add_library(orderbook STATIC
   src/sim/trades.cpp
   src/sim/chart_feed.cpp
   src/sim/chart_csv.cpp
+  src/sim/market_state.cpp
   src/itch/messages.cpp
   src/itch/mapped_file.cpp
   src/itch/scan.cpp
@@ -50,6 +51,7 @@ add_executable(orderbook_tests
   tests/trades_test.cpp
   tests/chart_feed_test.cpp
   tests/chart_csv_test.cpp
+  tests/market_state_test.cpp
 )
 target_link_libraries(orderbook_tests PRIVATE orderbook GTest::gtest_main)
 orderbook_warnings(orderbook_tests)

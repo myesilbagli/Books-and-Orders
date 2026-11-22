@@ -1,0 +1,69 @@
+#pragma once
+
+#include "orderbook/order.hpp"
+#include "orderbook/sim/chart_feed.hpp"
+#include "orderbook/sim/indicators.hpp"
+#include "orderbook/sim/trades.hpp"
+
+#include <cstdint>
+#include <optional>
+#include <vector>
+
+// One stock's charts: 1-second and 1-minute bars with their indicators, and the VWAP
+// (D44). The simulator keeps one and shows it to the strategy read-only; chart_dump uses
+// the same class, so what a strategy sees is what was checked against Databento (D42).
+//
+// Feed it, per message of the stock, in this order:
+//   advance(t)   before anything at t: closes the bars that are over
+//   on_trade()   if the message is a trade (read before the book applies it)
+//   on_mid()     after the book applied it, if the mid changed
+
+namespace ob::sim {
+
+struct MarketStateConfig {
+  std::uint64_t from_ns = 9ULL * 3600 * 1'000'000'000;  // bars start (pre-market warm-up)
+  std::uint64_t to_ns = 16ULL * 3600 * 1'000'000'000;   // and stop
+  std::uint64_t vwap_from_ns = (9ULL * 3600 + 30 * 60) * 1'000'000'000;  // VWAP counts from
+  ChartSettings settings;  // the founder's chart by default
+};
+
+// The bars closed by one advance(), per timeframe, oldest first.
+struct ClosedBars {
+  std::vector<ChartPoint> one_second;
+  std::vector<ChartPoint> one_minute;
+};
+
+class MarketState {
+ public:
+  explicit MarketState(const MarketStateConfig& config = {});
+
+  // Events outside [from_ns, to_ns) are ignored; advance() past to_ns closes the bars up
+  // to to_ns, once.
+  ClosedBars advance(std::uint64_t t_ns);
+  void on_trade(const Trade& trade);
+  void on_mid(std::uint64_t t_ns, Price mid_x2);
+
+  [[nodiscard]] const ChartFeed& one_second() const { return one_second_; }
+  [[nodiscard]] const ChartFeed& one_minute() const { return one_minute_; }
+  [[nodiscard]] const Vwap& vwap() const { return vwap_; }
+
+ private:
+  MarketStateConfig config_;
+  ChartFeed one_second_;
+  ChartFeed one_minute_;
+  Vwap vwap_;
+  ClosedBars pending_;  // closed since the last advance(), waiting to be handed out
+  std::optional<Price> carried_mid_x2_;  // the last mid before from_ns
+  bool started_ = false;                 // the window has opened
+
+  // At the first event at or after from_ns: open the bars at from_ns with the mid in
+  // force then, which usually changed before the window (else the first bar would wait
+  // for the next change).
+  void start_if_due(std::uint64_t t_ns);
+
+  [[nodiscard]] bool inside(std::uint64_t t_ns) const {
+    return t_ns >= config_.from_ns && t_ns < config_.to_ns;
+  }
+};
+
+}  // namespace ob::sim

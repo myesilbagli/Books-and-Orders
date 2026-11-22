@@ -1,6 +1,7 @@
 #pragma once
 
 #include "orderbook/order.hpp"
+#include "orderbook/sim/market_state.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -20,6 +21,10 @@ struct MarketView {
   std::uint64_t bid_size;  // shares resting at best_bid, other traders only (not us)
   std::uint64_t ask_size;
   std::int64_t inventory;  // our position in shares, + is long
+  // The stock's charts (closed bars only) and VWAP, read-only (D44). A pointer, not a
+  // reference, so a view can be built without one (nullptr), as tests do; the simulator
+  // always sets it.
+  const MarketState* market = nullptr;
 };
 
 // Where to quote; an empty side means "no quote there".

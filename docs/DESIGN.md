@@ -44,6 +44,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Chart CSV + `chart_dump` tool (1 s and 1 min bars with indicators, for checking against a chart) | `cpp/include/orderbook/sim/chart_csv.hpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/tools/chart_dump.cpp` | done (6b-3b), D41 |
 | Cross-check of bars and indicators against Databento | `research/check_chart.py` | done, D42 |
 | One-stock ITCH extract (`itch_extract`): same format, runs in seconds | `cpp/include/orderbook/itch/extract.hpp`, `cpp/src/itch/extract.cpp`, `cpp/tools/itch_extract.cpp` | done (6c-0), D43 |
+| `MarketState` (1 s + 1 min charts, VWAP) shown to the strategy; `chart_dump` uses the same class | `cpp/include/orderbook/sim/market_state.hpp`, `cpp/src/sim/market_state.cpp`, `cpp/include/orderbook/sim/strategy.hpp`, `cpp/src/sim/simulator.cpp` | done (6c-1), D44 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -583,6 +584,24 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - Fills, the report and the chart CSV are byte-identical to the full-file runs. Nothing outside the stock changes its book, so nothing is lost.
 - **Limit:** a study across stocks still needs the full file (or one extract per stock). For one-stock simulation, the slice is all there is.
 - **Also:** `find_locate` is now a library function with a test. Three tools had their own copy; the new tool uses the library one.
+
+### D44. The strategy sees the charts: one shared, read-only `MarketState`
+
+- **What:** the simulator keeps one `MarketState` for our stock: 1 s and 1 min `ChartFeed`s and the VWAP. It feeds it on every message of the stock, and `MarketView::market` points at it, read-only. A trial reads, for example, `view.market->one_minute().latest()->ema_fast`. The window and the settings are in `SimConfig::market`: charts 09:00-16:00 (pre-market warms them up), VWAP from 09:30, and the founder's chart settings.
+- **Order per message of our stock:**
+  1. Close the bars that are over, so nothing at `now` gets into them.
+  2. Count the message if it's a trade, before the book applies it (D40).
+  3. Apply it.
+  4. Feed a changed mid.
+  5. Ask the strategy.
+
+  So the strategy sees closed bars only, and a VWAP that includes the trade at `now`, which has happened and which the book already shows.
+- **No extra latency on indicators:** our quotes wait `latency_ns`, the charts don't. A microsecond doesn't move a 1 s or 1 min bar's indicators in any way that matters.
+- **One class for the simulator and `chart_dump`:** what a strategy sees is exactly what was checked against Databento (D42). Two copies could drift apart.
+- **Bug the regression check caught:** the mid in force at 09:00 usually changed before 09:00, and an "only feed changes" loop never gave it to the charts. The first bar waited for the next change, at 09:00:09 on the dev day. `MarketState` now carries the last mid from before the window and opens the bars with it at `from_ns`. The old `chart_dump` fed it at the first message after 09:00 (09:00:04), close but not exact. Only the first ten minutes of 1 s rows changed. The Databento check is unchanged (volume 100 %, indicator code to the last digit).
+- **Bars are never lost:** `on_trade` and `on_mid` can also close bars. These wait in a buffer and come out with the next `advance()`, whatever the call order.
+- **Pointer, not reference, in `MarketView`:** tests build views by hand without charts (`nullptr`). The simulator always sets it.
+- **Regression:** no strategy reads the charts yet, so the milestone 5 runs are byte-identical, and so is the chart CSV after 09:10.
 
 ## Build
 

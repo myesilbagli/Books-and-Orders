@@ -14,8 +14,7 @@
 #include "orderbook/itch/reader.hpp"
 #include "orderbook/replay.hpp"
 #include "orderbook/sim/chart_csv.hpp"
-#include "orderbook/sim/chart_feed.hpp"
-#include "orderbook/sim/indicators.hpp"
+#include "orderbook/sim/market_state.hpp"
 #include "orderbook/sim/trades.hpp"
 
 #include <cstdint>
@@ -69,26 +68,17 @@ std::optional<std::uint64_t> parse_hhmm(const std::string& s) {
   return hours * kHour + minutes * kMinute;
 }
 
-// The two charts, written in time order: a 1 s row and the 1 min row that closed at the
-// same moment come out together.
-struct Charts {
-  ob::sim::ChartFeed one_second{kSecond};
-  ob::sim::ChartFeed one_minute{kMinute};
-  ob::sim::Vwap vwap;
-  std::ofstream& out;
-
-  void write(const std::string& tf, const std::vector<ob::sim::ChartPoint>& points) {
-    for (const auto& p : points) {
-      ob::sim::write_chart_row(out, tf, p, vwap.value());
-    }
+// Rows for the bars one advance() closed, 1 s first; the VWAP written is the one when
+// they closed, before anything at a later time is counted.
+void write_closed(std::ofstream& out, const ob::sim::ClosedBars& closed,
+                  std::optional<double> vwap) {
+  for (const auto& p : closed.one_second) {
+    ob::sim::write_chart_row(out, "1s", p, vwap);
   }
-  // Close every bar that ended at or before t, before anything at t is added: what happens
-  // at t belongs to the next bar, and the VWAP written must not include it yet.
-  void advance(std::uint64_t t) {
-    write("1s", one_second.advance(t));
-    write("1m", one_minute.advance(t));
+  for (const auto& p : closed.one_minute) {
+    ob::sim::write_chart_row(out, "1m", p, vwap);
   }
-};
+}
 
 }  // namespace
 
@@ -134,7 +124,9 @@ int main(int argc, char** argv) {
   }
   ob::sim::write_chart_header(out);
 
-  Charts charts{.vwap = ob::sim::Vwap(vwap_from), .out = out};
+  // The same class the simulator shows its strategies (D44), so the CSV is what they see.
+  ob::sim::MarketState market(
+      ob::sim::MarketStateConfig{.from_ns = from, .to_ns = end, .vwap_from_ns = vwap_from});
   ob::Replayer replay;
   ob::itch::ItchReader reader(file.data(), file.size());
   ob::itch::RawMessage m{};
@@ -142,18 +134,19 @@ int main(int argc, char** argv) {
   std::uint64_t trades = 0;
   while (reader.next(m) == ob::itch::ReadStatus::Ok) {
     const bool ours = m.length >= 11 && ob::itch::read_u16(m.data + 1) == *locate;
-    const std::uint64_t t = m.length >= 11 ? ob::itch::read_u48(m.data + 5) : 0;
-    if (!ours || t < from || t >= end) {
+    if (!ours) {
       replay.apply(m.data, m.length);  // every stock's book must stay right
       continue;
     }
-    charts.advance(t);
+    const std::uint64_t t = ob::itch::read_u48(m.data + 5);
+    write_closed(out, market.advance(t), market.vwap().value());
     // Before applying: an E's price is the resting order's, which the book may remove.
-    if (const auto trade = ob::sim::trade_of(m.data, m.length, replay)) {
-      charts.vwap.on_trade(t, trade->price, trade->shares);
-      charts.one_second.on_trade(t, trade->shares);
-      charts.one_minute.on_trade(t, trade->shares);
-      ++trades;
+    const auto trade = ob::sim::trade_of(m.data, m.length, replay);
+    if (trade) {
+      market.on_trade(*trade);
+      if (t >= from && t < end) {
+        ++trades;
+      }
     }
     replay.apply(m.data, m.length);
     const ob::OrderBook& book = replay.book(*locate);
@@ -163,12 +156,12 @@ int main(int argc, char** argv) {
       const ob::Price mid_x2 = *bid + *ask;  // twice the mid, so it stays an integer
       if (!last_mid_x2 || *last_mid_x2 != mid_x2) {
         last_mid_x2 = mid_x2;
-        charts.one_second.on_mid(t, mid_x2);
-        charts.one_minute.on_mid(t, mid_x2);
+        market.on_mid(t, mid_x2);
       }
     }
   }
-  charts.advance(end);  // close the last bars, through 15:59:59 and 15:59
+  // Close the last bars, through 15:59:59 and 15:59.
+  write_closed(out, market.advance(end), market.vwap().value());
 
   std::cerr << symbol << ": " << trades << " trades counted, bars written to " << argv[3]
             << '\n';

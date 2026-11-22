@@ -418,5 +418,64 @@ TEST(StrategyTest, NotAskedWithoutATwoSidedMarket) {
   EXPECT_EQ(s.calls, 0);
 }
 
+// --- the charts the strategy sees (D44) ------------------------------------------------
+
+// Remembers, at every call, the start of the last closed 1 s bar and the VWAP it saw.
+class ChartWatcher final : public Strategy {
+ public:
+  std::vector<std::optional<std::uint64_t>> bar_start;
+  std::vector<std::optional<double>> vwap;
+
+  Quotes quote(const MarketView& view) override {
+    const std::optional<ChartPoint>& last = view.market->one_second().latest();
+    bar_start.push_back(last ? std::optional<std::uint64_t>(last->bar.start_ns) : std::nullopt);
+    vwap.push_back(view.market->vwap().value());
+    return {};
+  }
+};
+
+constexpr std::uint64_t kMs = 1'000'000;
+
+// Charts and VWAP from time 0, so the tests' small clocks are inside the window.
+SimConfig charts_from_zero() {
+  SimConfig c = config();
+  c.market = MarketStateConfig{.from_ns = 0, .to_ns = 24ULL * 3600 * 1'000 * kMs, .vwap_from_ns = 0};
+  return c;
+}
+
+// The [0 s, 1 s) bar shows up only on the first message at or after 1 s.
+TEST(ChartsTest, StrategySeesABarOnlyOnceItHasClosed) {
+  ChartWatcher s;
+  Simulator sim(charts_from_zero(), s);
+  open_market(sim, 300 * kMs);                          // call 1 (the ask makes it two-sided)
+  feed(sim, add(kAapl, 3, 'B', 100, 9'990, 900 * kMs));  // call 2, still inside the second
+  feed(sim, add(kAapl, 4, 'B', 100, 9'980, 1'100 * kMs));  // call 3, the bar has closed
+  ASSERT_EQ(s.bar_start.size(), 3u);
+  EXPECT_FALSE(s.bar_start[0]);
+  EXPECT_FALSE(s.bar_start[1]);
+  EXPECT_EQ(s.bar_start[2], 0u);
+}
+
+// A trade counts in the VWAP the strategy sees on that same message: it has happened.
+TEST(ChartsTest, StrategySeesTheVwapOfTradesSoFar) {
+  ChartWatcher s;
+  Simulator sim(charts_from_zero(), s);
+  open_market(sim, 300 * kMs);  // bid #1 100 @ 1.0000, ask #2 100 @ 1.0010
+  feed(sim, executed(kAapl, 1, 40, 500 * kMs));  // 40 shares trade at the bid
+  ASSERT_EQ(s.vwap.size(), 2u);
+  EXPECT_FALSE(s.vwap[0]);
+  EXPECT_DOUBLE_EQ(*s.vwap[1], 10'000.0);
+}
+
+// The default window is the real day's (09:00 on): a test clock near 0 has no charts.
+TEST(ChartsTest, OutsideTheWindowThereAreNoCharts) {
+  ChartWatcher s;
+  Simulator sim(config(), s);
+  open_market(sim, 300 * kMs);
+  feed(sim, add(kAapl, 3, 'B', 100, 9'990, 5'000 * kMs));
+  EXPECT_FALSE(s.bar_start.back());
+  EXPECT_FALSE(sim.market().one_second().latest());
+}
+
 }  // namespace
 }  // namespace ob::sim
