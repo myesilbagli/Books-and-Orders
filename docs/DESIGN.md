@@ -54,6 +54,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Structure in every chart (1 s, 15 s, 1 min, 5 min), on every fill, in the CSVs; `chart_dump --c --swings` | `cpp/include/orderbook/sim/chart_feed.hpp`, `cpp/src/sim/market_state.cpp`, `cpp/src/sim/fills_csv.cpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/tools/chart_dump.cpp`, `research/hub_export.py` | done (6c-2a-2), D49 |
 | Databento MBO → ITCH 5.0 converter, validated on the dev day | `research/dbn_to_itch.py`, `research/test_dbn_to_itch.py` | done, D52 |
 | The 10 development days (2026), converted and replay-checked | `research/convert_days.sh`, `research/pick_days.py` | done, D53, D54 |
+| Baseline on the 10 development days, one line per day (6d-1) | `research/run_days.sh`, `research/day_summary.py` | done, D55 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -780,6 +781,33 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - No native ITCH file exists for these days to compare against. The 2019 check (D52) covers the message mapping; this one covers each day being complete.
   - The 30 Dec 2019 file ends with 919 orders resting, since it was bought only to 19:00 ET. That is expected, which is why the script takes a date prefix.
 
+### D55. Explore freely on the development days, confirm once on the hold-out; the 2026 baseline
+
+- **Founder, 24 Nov 2026:** a strict decision is too hard this early; we need to try things, and trial and error may find something. Two modes, replacing the "primary tests with a Bonferroni level" of D47 and D51 for the development days:
+  - **Exploration, on the 10 development days:** any number of tries (signals, combinations, c, thresholds), every one written in the private trial log. Intervals are shown, but there is no pass/fail level: they only rank candidates.
+  - **Confirmation, on the 10 hold-out days (D53):** 1-2 candidates, frozen before the data is bought, tested once, with a Bonferroni level over the candidates.
+  - **Why:** a single day already showed that a few strict tests end in "can't tell". The hold-out is what makes free exploration safe: the best of many tries looks better than it is ("winner's curse"), and days it never saw correct that.
+  - **Always reported together:** cents per share **and** shares traded. Trading less makes the loss per share smaller without any edge (milestone 5: Avellaneda-Stoikov and pull-when-thin).
+- **The baseline on the 10 days (6d-1):** naive, 0 µs, quoting 09:31-16:00, as in milestone 5. Descriptive only, no test counted. Cents per share, adverse selection over 10 s:
+
+| Day | Fills | Shares | Spread | Adverse (10 s) | Inventory | Net ¢/sh | P&L $ |
+|---|---|---|---|---|---|---|---|
+| 4 Feb | 39,218 | 1,988,402 | 1.16 | −1.45 | −0.02 | −0.31 | −6,150 |
+| 3 Mar | 27,248 | 837,890 | 1.09 | −1.42 | −0.07 | −0.39 | −3,277 |
+| 9 Mar | 20,539 | 698,241 | 1.09 | −1.45 | +0.37 | 0.00 | +28 |
+| 21 May | 24,767 | 790,122 | 0.88 | −1.24 | +0.04 | −0.32 | −2,507 |
+| 27 May | 24,026 | 708,436 | 1.00 | −1.28 | −0.01 | −0.28 | −1,993 |
+| 7 Jul | 24,248 | 786,612 | 1.26 | −1.72 | −0.06 | −0.52 | −4,093 |
+| 23 Jul | 20,335 | 563,896 | 1.40 | −1.75 | −0.05 | −0.40 | −2,248 |
+| 30 Jul | 31,610 | 863,601 | 1.53 | −1.67 | +0.10 | −0.04 | −369 |
+| 5 Aug | 31,753 | 869,686 | 1.05 | −1.42 | +0.10 | −0.27 | −2,349 |
+| 2 Sep | 21,373 | 524,548 | 1.09 | −1.68 | +0.12 | −0.46 | −2,433 |
+| **All** | **265,117** | **8,631,434** | **1.16** | **−1.49** | **+0.04** | **−0.29** | **−25,392** |
+
+  - **The same story as 2019, every day:** adverse selection is larger than the spread on all 10 days, and 9 of 10 lose. 9 Mar breaks even only on inventory (+0.37 ¢).
+  - **Smaller than 2019** (−0.29 ¢ against −0.84 ¢ a share), and about 3 times the fills a day (20-39 K against 8 K): AAPL trades more, and its touch moves more often.
+  - Signals have more to work with than one day gave them: 265 K fills against 8 K.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -821,6 +849,7 @@ research/.venv/bin/python research/signal_study.py data/sim/m5/naive_0us.csv --r
 # any day from Databento (D52): MBO for one stock -> ITCH 5.0, then every tool runs on it
 research/.venv/bin/python research/dbn_to_itch.py data/databento/AAPL_20191230_XNAS_mbo.dbn.zst AAPL data/itch/20191230.AAPL.dbn.ITCH50
 research/convert_days.sh AAPL 2026   # every downloaded day: convert (skips done ones) + replay check (D54)
+research/run_days.sh AAPL 2026   # baseline on every converted day, one line per day (D55): data/sim/days/AAPL/
 research/.venv/bin/python research/pick_days.py   # the development and hold-out days (D53)
 
 # chart bars + indicators vs Databento's bars for the same day (D42; needs the two .dbn.zst files)

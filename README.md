@@ -24,6 +24,10 @@ One stock (AAPL) on one development day, 30 Dec 2019. Full numbers are in [RESUL
 - **Latency is the one difference that showed up:** at 50 µs the controllable P&L is 0.16 ¢ a share worse, with an interval that excludes zero. Total P&L hid this.
 - **The fills say why:** 56 % of our shares fill as the whole price level breaks, just before the price moves through it.
 
+## First look at 2026
+
+The same baseline on 10 random AAPL days of 2026 ([table](docs/RESULTS.md#milestone-6-first-step-the-same-baseline-on-10-days-of-2026)): **adverse selection beats the spread on all 10 days**. Net −0.29 ¢ a share over 8.6 M shares, smaller than 2019's −0.84 ¢. This is the loss the milestone 6 signals try to cut.
+
 ## How the simulation stays honest
 
 - **Queue position:** our order joins the back of the real queue at its price. It fills only once the real orders ahead of it have traded.
@@ -81,6 +85,7 @@ The market data isn't in the repo: it is Nasdaq's, and large. Two sources, read 
 # or: a Databento MBO file for one stock, turned into ITCH 5.0
 research/.venv/bin/python research/dbn_to_itch.py data/databento/AAPL_20191230_XNAS_mbo.dbn.zst AAPL data/itch/20191230.AAPL.dbn.ITCH50
 research/convert_days.sh AAPL 2026   # every downloaded 2026 day, each checked by a full replay
+research/run_days.sh AAPL 2026       # the baseline on each of those days, one line per day
 
 # one stock's slice of the day: every tool then runs in about a second
 ./build/release/cpp/itch_extract data/itch/12302019.NASDAQ_ITCH50 AAPL data/itch/12302019.AAPL.ITCH50

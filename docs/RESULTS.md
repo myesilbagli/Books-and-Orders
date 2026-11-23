@@ -99,3 +99,29 @@ research/run_m5.sh data/itch/12302019.NASDAQ_ITCH50   # 7 runs + bootstrap table
 ./build/release/cpp/itch_extract data/itch/12302019.NASDAQ_ITCH50 AAPL data/itch/12302019.AAPL.ITCH50
 research/run_m5.sh data/itch/12302019.AAPL.ITCH50
 ```
+
+# Milestone 6, first step: the same baseline on 10 days of 2026
+
+The 10 development days (D53), naive, 0 µs, quoting 09:31-16:00. Cents per share, adverse selection over 10 s, P&L in dollars with inventory marked at the 16:00 mid. Descriptive only: no test is counted (D55).
+
+| Day | Fills | Shares | Spread | Adverse (10 s) | Inventory | Net ¢/sh | P&L $ |
+|---|---|---|---|---|---|---|---|
+| 4 Feb | 39,218 | 1,988,402 | 1.16 | −1.45 | −0.02 | −0.31 | −6,150 |
+| 3 Mar | 27,248 | 837,890 | 1.09 | −1.42 | −0.07 | −0.39 | −3,277 |
+| 9 Mar | 20,539 | 698,241 | 1.09 | −1.45 | +0.37 | 0.00 | +28 |
+| 21 May | 24,767 | 790,122 | 0.88 | −1.24 | +0.04 | −0.32 | −2,507 |
+| 27 May | 24,026 | 708,436 | 1.00 | −1.28 | −0.01 | −0.28 | −1,993 |
+| 7 Jul | 24,248 | 786,612 | 1.26 | −1.72 | −0.06 | −0.52 | −4,093 |
+| 23 Jul | 20,335 | 563,896 | 1.40 | −1.75 | −0.05 | −0.40 | −2,248 |
+| 30 Jul | 31,610 | 863,601 | 1.53 | −1.67 | +0.10 | −0.04 | −369 |
+| 5 Aug | 31,753 | 869,686 | 1.05 | −1.42 | +0.10 | −0.27 | −2,349 |
+| 2 Sep | 21,373 | 524,548 | 1.09 | −1.68 | +0.12 | −0.46 | −2,433 |
+| **All** | **265,117** | **8,631,434** | **1.16** | **−1.49** | **+0.04** | **−0.29** | **−25,392** |
+
+- **Adverse selection beats the spread on every one of the 10 days.** 9 lose; 9 Mar breaks even on inventory alone.
+- **Smaller than in 2019:** −0.29 ¢ against −0.84 ¢ a share, with about 3 times the fills a day.
+
+```bash
+research/convert_days.sh AAPL 2026   # Databento MBO -> ITCH, each day replay-checked
+research/run_days.sh AAPL 2026       # this table, into data/sim/days/AAPL/
+```
