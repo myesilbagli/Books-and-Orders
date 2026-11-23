@@ -704,6 +704,10 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - carry the previous day's bars over;
   - use a smaller c for 5 min.
   Any of them changes the round 1 inputs slightly, so it's recorded before round 2 runs.
+- **Resolved: 5 min is parked** (founder, 23 Nov 2026: "hft için çok üst bir time frame gibi duruyor… şimdilik park edilebilir"). With the charts started at 04:00 the 5 min score does cover the session, but:
+  - premarket is thin: 34 K shares from 04:00 to 09:30, against 5.9 M in the regular session;
+  - the 5 min structure is far too slow for market making: with 11 swings all day, it called 72 % of the session "down" and saw the 10:15-12:00 rally (about $7) only at 13:55.
+  The 5 min chart stays in the data and on the hub, but round 2 doesn't test it, and the charts still start at 09:00. 1 min is the primary timeframe; 15 s is secondary (the fractal question).
 
 ### D50. The hub draws the structure, so c can be chosen by eye
 
