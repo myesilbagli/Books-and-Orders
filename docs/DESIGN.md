@@ -47,6 +47,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | `MarketState` (1 s + 1 min charts, VWAP) shown to the strategy; `chart_dump` uses the same class | `cpp/include/orderbook/sim/market_state.hpp`, `cpp/src/sim/market_state.cpp`, `cpp/include/orderbook/sim/strategy.hpp`, `cpp/src/sim/simulator.cpp` | done (6c-1), D44 |
 | Chart snapshot on every fill (1 s + 1 min indicators, VWAP) + 15 columns in the fills CSV | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/include/orderbook/sim/fills_csv.hpp`, `cpp/src/sim/fills_csv.cpp` | done (6c-2a), D45 |
 | Local research hub, phase 1: candles, EMA 9/21, VWAP, Bollinger, Stoch RSI, our fills colored by markout; exporter to JSON | `hub/web/`, `research/hub_export.py`, `research/test_hub_export.py` | done (6c-2b), D46 |
+| Signal study: do chart readings pick out the losing fills? (stage 1) | `research/signal_study.py`, `research/test_signal_study.py` | built (6c-2c-1), not yet run on the day, D47 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -636,6 +637,30 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - **One chart, two panes:** Stoch RSI sits under the price in the same chart, so the two time axes can't drift apart when scrolling.
   - **Check:** the page's run summary for naive 0 µs is 8,140 fills, 468,479 shares, −0.84 ¢ a share at 10 s, the same as RESULTS.md.
 
+### D47. Signal study: flagged fills against the rest, with the tests counted
+
+- **Question (stage 1 of the testing plan):** when the chart said something at the moment of a fill, was that fill worse than the others? This doesn't ask whether an indicator predicts the price, only whether it marks the market maker's bad fills in advance. If it does, a rule on it is worth a C++ trial (stage 2). If it doesn't, no trial gets written.
+- **Readings:** each signal reads the snapshot (D45) as −1 (price low or falling), +1 (high or rising) or 0:
+
+  | signal | −1 when | +1 when |
+  |---|---|---|
+  | 1m trend | 1 min EMA9 < EMA21 | EMA9 > EMA21 |
+  | 1s trend | 1 s EMA9 < EMA21 | EMA9 > EMA21 |
+  | VWAP | mid < VWAP | mid > VWAP |
+  | Bollinger | 1 min %B < 0 | %B > 1 |
+  | Stoch RSI | 1 min %K < 20 | %K > 80 |
+
+- **Flagged:** a buy at −1 or a sell at +1, i.e. a fill against the reading. These are the fills a rule on the signal would have stepped away from.
+- **Flagged against the rest, not against "with":** the question is whether buying below the lower band is worse than an ordinary buy. A comparison with only the fills on the other side of the band would answer something else.
+- **Measure:** P&L per share (spread + adverse selection) at 1 s and 10 s, flagged minus the rest. The interval is `bootstrap.py`'s paired block bootstrap (5 min blocks). The two groups are resampled with the same blocks, so a block where the price ran hurts both and cancels out.
+- **The tests are counted:** 5 signals × 2 horizons × 3 periods (whole day, morning, afternoon) = 30 tests.
+  - The 5 at 10 s over the whole day are the primary ones. They also get a 99 % interval (Bonferroni for 5 tests).
+  - The rest support the primary ones: a real effect should show in both halves of the day.
+  - On random synthetic fills, 1 of the 30 came out "flagged worse" at 95 %. That is what multiple testing does, and why only the primary tests count.
+- **Readings, not conclusions:** −1 means "low" whether it reads as trend (bad for a buy) or mean reversion (good). Which way the founder expects each signal to go is written in the private trial log **before** the study runs on the day. The script only measures.
+- **An upper bound:** "without the flagged fills" ignores that stepping away changes our queue position and the fills we'd get instead. A C++ trial (stage 2) answers that.
+- **Fills without the indicator** (warming up, VWAP before 09:30) are left out of that signal's test and counted.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -670,6 +695,9 @@ research/run_m5.sh data/itch/12302019.NASDAQ_ITCH50   # writes data/sim/m5/
 # the hub (D46): export a day, then open http://127.0.0.1:5174
 research/.venv/bin/python research/hub_export.py 2019-12-30 AAPL data/sim/chart/AAPL_chart.csv naive_0us=data/sim/m5/naive_0us.csv as10_0us=data/sim/m5/as10_0us.csv
 (cd hub/web && npm install && npm test && npm run dev)
+
+# signal study (D47): flagged fills vs the rest, per signal, 30 tests counted
+research/.venv/bin/python research/signal_study.py data/sim/m5/naive_0us.csv
 
 # chart bars + indicators vs Databento's bars for the same day (D42; needs the two .dbn.zst files)
 research/.venv/bin/python research/check_chart.py data/sim/chart/AAPL_chart.csv data/databento/AAPL_20191230_XNAS_ohlcv-1m.dbn.zst data/databento/AAPL_20191230_XNAS_ohlcv-1s.dbn.zst
