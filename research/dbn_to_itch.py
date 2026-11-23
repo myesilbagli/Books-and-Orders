@@ -19,7 +19,9 @@ group is turned back into the one message it came from:
     T          -> P  hidden (non-displayed) execution, and the open and close crosses
 
 Times: MBO is UTC; ITCH is nanoseconds since midnight New York time (summer time included).
-Anything else is counted and left out, never guessed at.
+Anything else is counted and left out, never guessed at; so are records from another New York
+day than the first record's (ITCH time restarts at midnight), and Databento's snapshot records
+(at UTC midnight it repeats the whole book; the live feed already built it).
 """
 
 import argparse
@@ -33,6 +35,7 @@ from zoneinfo import ZoneInfo
 NEW_YORK = ZoneInfo("America/New_York")
 NS = 1_000_000_000
 TO_ITCH_PRICE = 100_000  # MBO: 1e-9 dollars; ITCH: 1e-4 (4 decimals)
+F_SNAPSHOT = 32  # Databento's flag for a record that repeats the book, not a feed event
 
 
 @dataclass(frozen=True)
@@ -44,13 +47,23 @@ class Mbo:
     price: int     # 1e-9 dollars
     size: int
     order_id: int
+    flags: int = 0  # Databento flags; only F_SNAPSHOT is read here
+
+
+def _new_york(ts_utc_ns):
+    seconds, ns = divmod(ts_utc_ns, NS)
+    return datetime.fromtimestamp(seconds, timezone.utc).astimezone(NEW_YORK), ns
 
 
 def eastern_ns(ts_utc_ns):
     """ITCH time: nanoseconds since midnight in New York, on that day."""
-    seconds, ns = divmod(ts_utc_ns, NS)
-    local = datetime.fromtimestamp(seconds, timezone.utc).astimezone(NEW_YORK)
+    local, ns = _new_york(ts_utc_ns)
     return (local.hour * 3600 + local.minute * 60 + local.second) * NS + ns
+
+
+def eastern_day(ts_utc_ns):
+    """The New York date of a UTC time (not the UTC date: 23:30 ET is the next day in UTC)."""
+    return _new_york(ts_utc_ns)[0].date()
 
 
 def _price(mbo_price):
@@ -130,8 +143,24 @@ def convert(records, symbol, locate=1):
     w.directory()
     orders = {}  # order id -> [ITCH price, shares left], to tell D from X and E from C
     stats = Counter()
+    day = None  # the New York date of the first record: the file's one trading day
 
-    for g in _groups(records):
+    def live(records):
+        # Snapshot records are Databento's copy of a book the feed already built (at UTC
+        # midnight, mid-file); ITCH has no such message.
+        for r in records:
+            if r.flags & F_SNAPSHOT:
+                stats["skipped: snapshot record"] += 1
+            else:
+                yield r
+
+    for g in _groups(live(records)):
+        # ITCH time restarts at midnight, so another day's records would mix into this one.
+        if day is None:
+            day = eastern_day(g[0].ts_event)
+        elif eastern_day(g[0].ts_event) != day:
+            stats["skipped: another New York day"] += 1
+            continue
         pattern = "".join(r.action for r in g)
         t = eastern_ns(g[0].ts_event)
         if pattern == "A":
@@ -183,18 +212,19 @@ def convert(records, symbol, locate=1):
 
 
 def read_dbn(path):
-    """The MBO records of a Databento file, in feed order (R, the book clear, left out)."""
+    """The MBO records of a Databento file, in feed order (R, the book clear, left out: the
+    file starts at an empty book, and the clear before a snapshot is not a feed event)."""
     import databento as db  # only here: the tests don't need the package
 
     df = db.DBNStore.from_file(path).to_df(price_type="fixed", pretty_ts=False,
                                            map_symbols=False)
     df = df[df["action"] != "R"]
-    for seq, t, action, side, price, size, ref in zip(
+    for seq, t, action, side, price, size, ref, flags in zip(
             df["sequence"].to_numpy(), df["ts_event"].to_numpy(), df["action"].to_numpy(),
             df["side"].to_numpy(), df["price"].to_numpy(), df["size"].to_numpy(),
-            df["order_id"].to_numpy()):
+            df["order_id"].to_numpy(), df["flags"].map(int).to_numpy()):
         yield Mbo(sequence=int(seq), ts_event=int(t), action=action, side=side, price=int(price),
-                  size=int(size), order_id=int(ref))
+                  size=int(size), order_id=int(ref), flags=int(flags))
 
 
 def main(argv=None):

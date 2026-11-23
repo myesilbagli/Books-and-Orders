@@ -131,6 +131,39 @@ class HiddenTrade(unittest.TestCase):
         self.assertEqual((side, shares, stock, price), (b"B", 300, b"AAPL    ", 2_900_700))
 
 
+class OtherDay(unittest.TestCase):
+    # ITCH time is "since midnight", so a record from the next New York day would land at
+    # 00:00 again, inside today's file. The day is the first record's; others are counted
+    # and skipped.
+    def test_records_from_another_new_york_day_are_skipped(self):
+        late = int(datetime(2019, 12, 31, 5, 1, tzinfo=timezone.utc).timestamp()) * NS  # 00:01 ET
+        msgs, stats = convert([rec(1, "A", "B", 290, 100, 55),
+                               rec(2, "A", "B", 290, 100, 56, t=late)])
+        self.assertEqual(len(msgs), 1)
+        self.assertEqual(stats["skipped: another New York day"], 1)
+
+    # Summer time: 23:30 ET on 1 July is 03:30 UTC on 2 July, still the same New York day.
+    def test_the_day_is_new_york_not_utc(self):
+        early = int(datetime(2025, 7, 1, 13, 30, tzinfo=timezone.utc).timestamp()) * NS
+        late = int(datetime(2025, 7, 2, 3, 30, tzinfo=timezone.utc).timestamp()) * NS
+        msgs, stats = convert([rec(1, "A", "B", 290, 100, 55, t=early),
+                               rec(2, "A", "B", 290, 100, 56, t=late)])
+        self.assertEqual(len(msgs), 2)
+        self.assertEqual(stats["skipped: another New York day"], 0)
+
+
+class Snapshot(unittest.TestCase):
+    # At UTC midnight Databento repeats the whole book as "snapshot" adds (flag 32). The
+    # live feed already built that book, and ITCH has no such message: skip and count them.
+    def test_snapshot_records_are_skipped(self):
+        again = dx.Mbo(sequence=1, ts_event=T_0930, action="A", side="B", price=290 * P,
+                       size=100, order_id=55, flags=dx.F_SNAPSHOT)
+        msgs, stats = convert([rec(1, "A", "B", 290, 100, 55), again,
+                               rec(2, "C", "B", 290, 100, 55)])
+        self.assertEqual([chr(m[0]) for m in msgs], ["A", "D"])
+        self.assertEqual(stats["skipped: snapshot record"], 1)
+
+
 class Unknown(unittest.TestCase):
     # Anything else is counted, never guessed at.
     def test_unknown_patterns_are_counted(self):

@@ -53,6 +53,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | ATR + market structure: ZigZag swings scaled by ATR, HH/HL score (round 2) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/include/orderbook/sim/structure.hpp`, `cpp/src/sim/structure.cpp` | done (6c-2a-1), D48 |
 | Structure in every chart (1 s, 15 s, 1 min, 5 min), on every fill, in the CSVs; `chart_dump --c --swings` | `cpp/include/orderbook/sim/chart_feed.hpp`, `cpp/src/sim/market_state.cpp`, `cpp/src/sim/fills_csv.cpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/tools/chart_dump.cpp`, `research/hub_export.py` | done (6c-2a-2), D49 |
 | Databento MBO → ITCH 5.0 converter, validated on the dev day | `research/dbn_to_itch.py`, `research/test_dbn_to_itch.py` | done, D52 |
+| The 10 development days (2026), converted and replay-checked | `research/convert_days.sh`, `research/pick_days.py` | done, D53, D54 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -766,6 +767,18 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **The calendar:** full trading days only. 2026 holidays and the two early closes are left out, since quoting runs to 16:00. Each day's Databento size was checked before buying; none is near empty.
 - **One stock for now:** AAPL, on which the converter (D52) and every result so far stand. A rule that passes on AAPL is then checked once on MSFT, unchanged. A basket comes in milestone 7.
 - **Recorded before any of these days was downloaded.** Cost: $8.48 for the 20 days, 7.6 GB before compression.
+- **Update, 24 Nov 2026: the hold-out is bought only when a rule is final.** Data that isn't on disk can't be looked at by accident, and the money waits until it has a use. The 10 development days were bought on 24 Nov for $5.51 (busier days than the hold-out, so more than half of $8.48). The hold-out stays these 10 days, decided now.
+
+### D54. The 10 development days arrive: Databento's midnight snapshot, and a replay check per day
+
+- **Bought 24 Nov 2026, $5.51:** AAPL MBO for the 10 development days (D53), each from 08:00 UTC to 02:00 UTC the next day. 1.4 GB as downloaded (88-230 MB a day), 1.3 GB as ITCH; 3.6 M to 10.0 M messages a day.
+- **Found on the first day: a snapshot in the middle of the file.** At every UTC midnight (19:00 or 20:00 New York time) Databento writes a book clear (R) and then the whole resting book again as adds, flagged `F_SNAPSHOT` (32). In a file that starts at UTC midnight, that is how it hands over the book. Ours start before Nasdaq's day begins, so the feed has already built the book and the snapshot only repeats it: 4,500-9,600 adds a day for orders that already exist. ITCH has no such message. Converted as-is, the book refused every one as a duplicate (8,342 on 4 Feb).
+  - **Fix:** the converter skips and counts snapshot records. 30 Dec 2019 had none (Databento added them later), and its file is byte-identical to before.
+  - **The alternative**, ending each day at UTC midnight, would cut the last hour of the post-market in winter, and was not what was bought.
+- **Another guard:** ITCH time is "nanoseconds since midnight", so a record from the next New York day would land at 00:00 inside today's file. Records from another New York date than the first record's are skipped and counted. None so far: each day ends at 21:00 or 22:00 New York time.
+- **The check, per day (`research/convert_days.sh`):** a full replay through the books must end clean with 0 decode failures, 0 unknown orders, 0 rejected, 0 crossed while trading, and **0 orders resting at the end**. That last one only holds if every add, execution, cancel and replace came through. All 10 days pass, including the 5 in summer time.
+  - No native ITCH file exists for these days to compare against. The 2019 check (D52) covers the message mapping; this one covers each day being complete.
+  - The 30 Dec 2019 file ends with 919 orders resting, since it was bought only to 19:00 ET. That is expected, which is why the script takes a date prefix.
 
 ## Build
 
@@ -807,6 +820,8 @@ research/.venv/bin/python research/signal_study.py data/sim/m5/naive_0us.csv --r
 
 # any day from Databento (D52): MBO for one stock -> ITCH 5.0, then every tool runs on it
 research/.venv/bin/python research/dbn_to_itch.py data/databento/AAPL_20191230_XNAS_mbo.dbn.zst AAPL data/itch/20191230.AAPL.dbn.ITCH50
+research/convert_days.sh AAPL 2026   # every downloaded day: convert (skips done ones) + replay check (D54)
+research/.venv/bin/python research/pick_days.py   # the development and hold-out days (D53)
 
 # chart bars + indicators vs Databento's bars for the same day (D42; needs the two .dbn.zst files)
 research/.venv/bin/python research/check_chart.py data/sim/chart/AAPL_chart.csv data/databento/AAPL_20191230_XNAS_ohlcv-1m.dbn.zst data/databento/AAPL_20191230_XNAS_ohlcv-1s.dbn.zst
