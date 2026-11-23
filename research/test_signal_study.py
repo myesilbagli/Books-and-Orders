@@ -214,5 +214,79 @@ class Round2Study(unittest.TestCase):
         self.assertFalse(self.find("15s range").primary)
 
 
+
+def block_rows(per_block):
+    """78 blocks of the same fills: per_block is [(side, markout ¢, 1 min structure)]."""
+    rows = []
+    for b in range(78):
+        t = bs.START_NS + b * BLOCK + SECOND
+        for i, (side, cents, score) in enumerate(per_block):
+            rows.append(row(t + i * SECOND, side, cents, structure_1m=score))
+    return rows
+
+
+class ManyDays(unittest.TestCase):
+    """Several days (6d-2): flagged minus rest within each day, then a weighted average."""
+
+    def find(self, results, signal="1m structure", period="whole day"):
+        return next(r for r in results
+                    if (r.signal, r.horizon, r.period) == (signal, 10, period))
+
+    # Simpson's paradox: each day, the flagged fills are 0.1 ¢ better. But the busy day has
+    # more of them and is worse for everyone, so pooling all fills would say -0.7 ¢.
+    def test_within_each_day_not_pooled(self):
+        quiet = block_rows([("B", -0.5, 0)] * 3 + [("B", -0.4, -2)])
+        busy = block_rows([("B", -2.1, 0)] + [("B", -2.0, -2)] * 3)
+        r = self.find(ss.study_days([quiet, busy], resamples=50, seed=0, signals=ss.ROUNDS[2]))
+        self.assertAlmostEqual(r.flagged_cents, -1.6)  # pooled, as a description
+        self.assertAlmostEqual(r.rest_cents, -0.9)
+        self.assertAlmostEqual(r.diff, 0.1)
+        self.assertAlmostEqual(r.low, 0.1)
+        self.assertAlmostEqual(r.high, 0.1)
+        self.assertEqual((r.days_worse, r.days), (0, 2))
+
+    # Days weigh by the shares compared: +1 on 200 shares a block, -1 on 600: -0.5.
+    def test_days_weigh_by_shares(self):
+        small = block_rows([("B", 0.0, 0), ("B", 1.0, -2)])
+        large = block_rows([("B", 0.0, 0)] * 3 + [("B", -1.0, -2)] * 3)
+        r = self.find(ss.study_days([small, large], resamples=50, seed=0, signals=ss.ROUNDS[2]))
+        self.assertAlmostEqual(r.diff, -0.5)
+        self.assertEqual((r.days_worse, r.days), (1, 2))
+
+    # A day with no flagged fills has nothing to compare: left out, not counted as 0.
+    def test_a_day_without_flagged_fills_is_left_out(self):
+        some = block_rows([("B", 0.0, 0), ("B", -1.0, -2)])
+        none = block_rows([("B", 5.0, 0)])
+        r = self.find(ss.study_days([some, none], resamples=50, seed=0, signals=ss.ROUNDS[2]))
+        self.assertAlmostEqual(r.diff, -1.0)
+        self.assertEqual((r.days_worse, r.days), (1, 1))
+
+    # One day is the single-day study, to the last digit: same estimate, same resampled
+    # blocks, same intervals (so every earlier result still stands).
+    def test_one_day_is_the_single_day_study(self):
+        rows = []
+        for b in range(78):
+            t = bs.START_NS + b * BLOCK + SECOND
+            rows.append(row(t, "B", (b % 7) - 3.0, structure_1m=0))
+            rows.append(row(t + SECOND, "S", (b % 5) - 2.5, structure_1m=2))
+        one = ss.study_days([rows], resamples=200, seed=3, signals=ss.ROUNDS[2])
+        old = ss.study(rows, resamples=200, seed=3, signals=ss.ROUNDS[2])
+        for a, b in zip(one, old):
+            self.assertEqual((a.diff, a.low, a.high, a.low_99, a.high_99),
+                             (b.diff, b.low, b.high, b.low_99, b.high_99))
+
+    # Each day's blocks are drawn only from that day: one resample is n_k draws per day.
+    def test_blocks_stay_in_their_day(self):
+        draws = ss.stratified_draws([3, 5], resamples=20, seed=1)
+        self.assertEqual(len(draws), 20)
+        for day_a, day_b in draws:
+            self.assertEqual((len(day_a), len(day_b)), (3, 5))
+            self.assertTrue(all(0 <= i < 3 for i in day_a))
+            self.assertTrue(all(0 <= i < 5 for i in day_b))
+        # with one day, exactly bootstrap.py's draws: the pairing with milestone 5 holds
+        self.assertEqual([d[0] for d in ss.stratified_draws([4], 10, 7)],
+                         list(bs._resampled(4, 10, 7)))
+
+
 if __name__ == "__main__":
     unittest.main()

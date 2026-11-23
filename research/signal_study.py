@@ -1,6 +1,12 @@
 """Does a chart reading pick out the fills that lose money? (milestone 6, stage 1, D47)
 
     research/.venv/bin/python research/signal_study.py data/sim/m5/naive_0us.csv
+    research/.venv/bin/python research/signal_study.py data/sim/days/AAPL/*/naive_0us.csv --round 2
+
+With several days (one fills CSV each, 6d-2): the difference is taken within each day, then
+averaged with each day weighted by its shares, so a day that is worse for every fill can't
+pass for a signal (Simpson's paradox). The bootstrap draws each day's blocks from that day
+only (stratified), and the report counts the days on which the flagged fills were worse.
 
 For each signal (round 1: 1 min and 1 s EMA trend, VWAP; round 2: market structure), a fill is "flagged" when we traded against the signal's reading: we
 bought while it said the price was low or falling, or sold while it said high or rising.
@@ -17,6 +23,7 @@ intervals. Standard library only.
 
 import argparse
 import csv
+import random
 from dataclasses import dataclass
 
 import bootstrap as bs
@@ -154,6 +161,8 @@ class Result:
     low_99: object = None  # Bonferroni-corrected interval (CORRECTED_LEVEL), primary only
     high_99: object = None
     verdict: str = ""
+    days: object = None        # days with both groups to compare
+    days_worse: object = None  # of those, days where the flagged fills did worse
 
 
 def verdict(diff, low, high):
@@ -170,23 +179,66 @@ def _cents(pnl, shares):
     return sum(pnl) / sum(shares) / 100 if sum(shares) else None  # 1 cent = 100 ticks
 
 
-def _compare(signal, horizon, period, primary, missing, fl, rest, resamples, seed, level):
-    """fl and rest: (pnl blocks, share blocks) for the period."""
-    total = sum(fl[1]) + sum(rest[1])
+def stratified_draws(lengths, resamples, seed):
+    """Per resample, each day's blocks drawn with replacement from that day only. With one
+    day these are bootstrap.py's draws, in the same order (same seed, same resampled days)."""
+    rng = random.Random(seed)
+    return [[[rng.randrange(n) for _ in range(n)] for n in lengths] for _ in range(resamples)]
+
+
+def _day_diff(day, idx):
+    """(flagged minus rest in cents a share, shares compared) for the chosen blocks of a day."""
+    fl_pnl, fl_sh, rest_pnl, rest_sh = day
+    fs, rs = sum(fl_sh[i] for i in idx), sum(rest_sh[i] for i in idx)
+    # Same sums, same order as bootstrap.paired_diff_ci, so one day gives its exact numbers.
+    diff = (bs._cents_per_share(sum(fl_pnl[i] for i in idx), fs)
+            - bs._cents_per_share(sum(rest_pnl[i] for i in idx), rs))
+    return diff, fs + rs
+
+
+def _within_days(days, picks):
+    """Each day's difference, weighted by its shares: busy days count more, and a day that
+    is bad for every fill moves both groups alike, so it cancels within the day."""
+    parts = [_day_diff(day, idx) for day, idx in zip(days, picks)]
+    total = sum(w for _, w in parts)
+    # w / total * d, not sum(w * d) / total: with one day that is 1.0 * d, exactly d.
+    return sum(w / total * d for d, w in parts) if total else 0.0
+
+
+def _compare(signal, horizon, period, primary, missing, days, resamples, seed, level, draws):
+    """days: per day, (flagged pnl, flagged shares, rest pnl, rest shares) blocks."""
+    fl_pnl = sum(sum(d[0]) for d in days)
+    fl_sh = sum(sum(d[1]) for d in days)
+    rest_pnl = sum(sum(d[2]) for d in days)
+    rest_sh = sum(sum(d[3]) for d in days)
+    total = fl_sh + rest_sh
     fields = dict(signal=signal, horizon=horizon, period=period, primary=primary,
-                  missing=missing, flagged_share=sum(fl[1]) / total if total else 0.0,
-                  flagged_cents=_cents(*fl), rest_cents=_cents(*rest),
+                  missing=missing, flagged_share=fl_sh / total if total else 0.0,
+                  # pooled over the days: a description, not the test
+                  flagged_cents=fl_pnl / fl_sh / 100 if fl_sh else None,
+                  rest_cents=rest_pnl / rest_sh / 100 if rest_sh else None,
                   diff=None, low=None, high=None)
-    if sum(fl[1]) and sum(rest[1]):
+    # Only days with both groups: a day without flagged fills says nothing about them.
+    both = [d for d in days if sum(d[1]) and sum(d[3])]
+    fields["days"] = len(both)
+    fields["days_worse"] = sum(_day_diff(d, range(len(d[0])))[0] < 0 for d in both)
+    if both:
+        fields["diff"] = _within_days(both, [range(len(d[0])) for d in both])
+        lengths = tuple(len(d[0]) for d in both)
+        key = (lengths, resamples, seed)
+        if key not in draws:  # the same draws serve every signal: paired across them too
+            draws[key] = stratified_draws(lengths, resamples, seed)
         # Same blocks for both groups on every resample (paired, D37): a block where the
         # price ran hurts both, and that shared noise cancels in the difference. A resample
-        # that happens to hold no flagged shares counts as 0 (bootstrap.py's rule); with
-        # few flagged fills, read the interval with care.
-        fields["diff"], fields["low"], fields["high"] = bs.paired_diff_ci(
-            rest[0], rest[1], fl[0], fl[1], resamples, seed)
+        # that happens to hold no flagged shares in a day counts as 0 there (bootstrap.py's
+        # rule); with few flagged fills, read the interval with care.
+        stats = sorted(_within_days(both, picks) for picks in draws[key])
+        tail = (1 - 0.95) / 2
+        fields["low"], fields["high"] = bs._percentile(stats, tail), bs._percentile(stats, 1 - tail)
         if primary:
-            _, fields["low_99"], fields["high_99"] = bs.paired_diff_ci(
-                rest[0], rest[1], fl[0], fl[1], resamples, seed, level=level)
+            tail = (1 - level) / 2
+            fields["low_99"] = bs._percentile(stats, tail)
+            fields["high_99"] = bs._percentile(stats, 1 - tail)
     return Result(**fields, verdict=verdict(fields["diff"], fields["low"], fields["high"]))
 
 
@@ -199,30 +251,41 @@ def _is_flagged(signal, row):
 
 
 def study(rows, resamples=2000, seed=0, block_ns=BLOCK_NS, signals=SIGNALS):
+    """One day's fills: the several-day study with one day."""
+    return study_days([rows], resamples, seed, block_ns, signals)
+
+
+def study_days(days, resamples=2000, seed=0, block_ns=BLOCK_NS, signals=SIGNALS):
+    """days: one list of rows per day."""
     results = []
     level = corrected_level(signals)
+    draws = {}
     for s in signals:
-        fl, rest, missing = [], [], 0
-        for r in rows:
-            f = _is_flagged(s, r)
-            if f is None:
-                missing += 1
-            elif f:
-                fl.append(r.fill)
-            else:
-                rest.append(r.fill)
+        missing = 0
+        blocks = []  # per day: horizon -> (flagged blocks, rest blocks)
+        for rows in days:
+            fl, rest = [], []
+            for r in rows:
+                f = _is_flagged(s, r)
+                if f is None:
+                    missing += 1
+                elif f:
+                    fl.append(r.fill)
+                else:
+                    rest.append(r.fill)
+            blocks.append({h: (bs.block_sums(fl, h, block_ns), bs.block_sums(rest, h, block_ns))
+                           for h in HORIZONS})
         for h in HORIZONS:
-            fl_blocks = bs.block_sums(fl, h, block_ns)
-            rest_blocks = bs.block_sums(rest, h, block_ns)
-            half = len(fl_blocks[0]) // 2  # 78 blocks: 09:31-12:46 and 12:46-16:00
+            half = len(blocks[0][h][0][0]) // 2  # 78 blocks: 09:31-12:46 and 12:46-16:00
             periods = [("whole day", slice(None)), ("morning", slice(0, half)),
                        ("afternoon", slice(half, None))]
             for period, part in periods:
+                per_day = [(fl[0][part], fl[1][part], rest[0][part], rest[1][part])
+                           for fl, rest in (b[h] for b in blocks)]
                 results.append(_compare(
                     s.name, h, period,
                     s.primary and h == PRIMARY_HORIZON and period == "whole day", missing,
-                    (fl_blocks[0][part], fl_blocks[1][part]),
-                    (rest_blocks[0][part], rest_blocks[1][part]), resamples, seed, level))
+                    per_day, resamples, seed, level, draws))
     return results
 
 
@@ -230,9 +293,12 @@ def _f(x, fmt="+.2f"):
     return "-" if x is None else format(x, fmt)
 
 
-def report(path, results, resamples, signals=SIGNALS, round_=1):
+def report(path, results, resamples, signals=SIGNALS, round_=1, n_days=1):
     primary = sum(r.primary for r in results)
     print(f"Signal study, round {round_}: {path}")
+    if n_days > 1:
+        print(f"{n_days} days: diff within each day, weighted by its shares; flagged ¢ and"
+              f" rest ¢ pooled over the days; 'worse' = days the flagged fills did worse.")
     print(f"P&L per share (spread + adverse selection), cents; diff = flagged - rest, 95 % interval,"
           f" 5 min blocks, {resamples} resamples.")
     print(f"{len(results)} tests, {primary} primary (10 s, whole day; also a"
@@ -243,28 +309,32 @@ def report(path, results, resamples, signals=SIGNALS, round_=1):
         print(f"{s.name}{'' if s.primary else ' (supporting)'}: flagged = {s.rule};"
               f" {rs[0].missing} fills without the input")
         print(f"  {'h':>4} {'period':<10}{'flagged':>9}{'flagged ¢':>11}{'rest ¢':>9}{'diff':>8}"
-              f"{'95 %':>18}{'corrected':>18}  verdict")
+              f"{'95 %':>18}{'corrected':>18}{'  worse' if n_days > 1 else ''}  verdict")
         for r in rs:
             ci = "-" if r.low is None else f"[{r.low:+.2f}, {r.high:+.2f}]"
             ci99 = "" if r.low_99 is None else f"[{r.low_99:+.2f}, {r.high_99:+.2f}]"
             mark = " *" if r.primary else ""
+            worse = f"{r.days_worse:>4}/{r.days:<2}" if n_days > 1 else ""
             print(f"  {r.horizon:>3}s {r.period:<10}{r.flagged_share:>9.1%}{_f(r.flagged_cents):>11}"
-                  f"{_f(r.rest_cents):>9}{_f(r.diff):>8}{ci:>18}{ci99:>18}  {r.verdict}{mark}")
+                  f"{_f(r.rest_cents):>9}{_f(r.diff):>8}{ci:>18}{ci99:>18}{worse}  {r.verdict}{mark}")
         print()
     print("* primary test")
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("csv", help="fills CSV from mm_sim, with the chart columns (D45)")
+    p.add_argument("csv", nargs="+",
+                   help="fills CSVs from mm_sim, with the chart columns (D45): one per day")
     p.add_argument("--resamples", type=int, default=2000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--round", type=int, choices=sorted(ROUNDS), default=1,
                    help="1: EMA trend and VWAP (D47); 2: market structure (D51)")
     a = p.parse_args(argv)
     signals = ROUNDS[a.round]
-    report(a.csv, study(read_rows(a.csv), a.resamples, a.seed, signals=signals), a.resamples,
-           signals, a.round)
+    days = [read_rows(path) for path in a.csv]
+    label = a.csv[0] if len(a.csv) == 1 else f"{len(a.csv)} files, {a.csv[0]} ..."
+    report(label, study_days(days, a.resamples, a.seed, signals=signals), a.resamples,
+           signals, a.round, len(days))
 
 
 if __name__ == "__main__":

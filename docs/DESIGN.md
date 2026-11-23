@@ -55,6 +55,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Databento MBO → ITCH 5.0 converter, validated on the dev day | `research/dbn_to_itch.py`, `research/test_dbn_to_itch.py` | done, D52 |
 | The 10 development days (2026), converted and replay-checked | `research/convert_days.sh`, `research/pick_days.py` | done, D53, D54 |
 | Baseline on the 10 development days, one line per day (6d-1) | `research/run_days.sh`, `research/day_summary.py` | done, D55 |
+| Signal study over several days: within-day difference, stratified bootstrap, days worse (6d-2) | `research/signal_study.py` (`study_days`) | done, D56 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -808,6 +809,19 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - **Smaller than 2019** (−0.29 ¢ against −0.84 ¢ a share), and about 3 times the fills a day (20-39 K against 8 K): AAPL trades more, and its touch moves more often.
   - Signals have more to work with than one day gave them: 265 K fills against 8 K.
 
+### D56. The signal study over several days: compare within each day, resample within each day
+
+- **The difference is taken within each day, then averaged, each day weighted by its shares.** Pooling all fills would let a day that is bad for everyone pass for a signal: if the busy, volatile day has more flagged fills, the flagged group looks worse even when, on every single day, it is better (Simpson's paradox; the test builds exactly that case: +0.1 ¢ each day, −0.7 ¢ pooled). Within a day, a bad day moves both groups alike and cancels.
+  - Weighted by shares, not equally: a day with 2 M shares says more than one with 0.5 M. The same reason as the ratio of sums in D37.
+  - A day with no flagged fills (or no others) is left out, not counted as 0.
+  - The pooled flagged and rest ¢ are still printed, as a description only.
+- **Stratified block bootstrap:** each resample draws every day's 5-minute blocks from that day only, so each day keeps its size and character. The same draws serve every signal, as in D37's pairing.
+  - **Rejected:** resampling whole days. It is the most honest about day-to-day variation, but with 10 days its interval is too wide to rank anything. "Days worse" (below) covers that question instead.
+  - Rejected: resampling blocks across days, which mixes a quiet day's blocks into a busy one.
+- **Days worse:** on how many days the flagged fills did worse. 8 of 10 in the same direction says more than an average that one big day could drive.
+- **One day is the old study exactly:** with one day, the draws are bootstrap.py's draws in the same order, and the weighted average of one day is that day's difference. The 30 Dec 2019 rounds 1 and 2 reproduce to the digit (a test checks it too).
+- **Speed:** 10 days, 265 K fills, round 2: 4.5 s.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -845,6 +859,7 @@ research/export_hub.sh data/itch/12302019.AAPL.ITCH50 2019-12-30 AAPL
 
 # signal study (D47): flagged fills vs the rest, per signal, 18 tests counted
 research/.venv/bin/python research/signal_study.py data/sim/m5/naive_0us.csv --round 2   # --round 1: EMA trend and VWAP
+research/.venv/bin/python research/signal_study.py data/sim/days/AAPL/*/naive_0us.csv --round 2   # several days (D56)
 
 # any day from Databento (D52): MBO for one stock -> ITCH 5.0, then every tool runs on it
 research/.venv/bin/python research/dbn_to_itch.py data/databento/AAPL_20191230_XNAS_mbo.dbn.zst AAPL data/itch/20191230.AAPL.dbn.ITCH50
