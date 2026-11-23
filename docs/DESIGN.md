@@ -45,6 +45,8 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Cross-check of bars and indicators against Databento | `research/check_chart.py` | done, D42 |
 | One-stock ITCH extract (`itch_extract`): same format, runs in seconds | `cpp/include/orderbook/itch/extract.hpp`, `cpp/src/itch/extract.cpp`, `cpp/tools/itch_extract.cpp` | done (6c-0), D43 |
 | `MarketState` (1 s + 1 min charts, VWAP) shown to the strategy; `chart_dump` uses the same class | `cpp/include/orderbook/sim/market_state.hpp`, `cpp/src/sim/market_state.cpp`, `cpp/include/orderbook/sim/strategy.hpp`, `cpp/src/sim/simulator.cpp` | done (6c-1), D44 |
+| Chart snapshot on every fill (1 s + 1 min indicators, VWAP) + 15 columns in the fills CSV | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/include/orderbook/sim/fills_csv.hpp`, `cpp/src/sim/fills_csv.cpp` | done (6c-2a), D45 |
+| Local research hub (charts with our fills) | `hub/` | planned (6c-2b), D46 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -589,7 +591,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 
 - **What:** the simulator keeps one `MarketState` for our stock: 1 s and 1 min `ChartFeed`s and the VWAP. It feeds it on every message of the stock, and `MarketView::market` points at it, read-only. A trial reads, for example, `view.market->one_minute().latest()->ema_fast`. The window and the settings are in `SimConfig::market`: charts 09:00-16:00 (pre-market warms them up), VWAP from 09:30, and the founder's chart settings.
 - **Order per message of our stock:**
-  1. Close the bars that are over, so nothing at `now` gets into them.
+  1. Close the bars that are over, so nothing at `now` gets into them. Since D45 this runs first of all, before the fill check.
   2. Count the message if it's a trade, before the book applies it (D40).
   3. Apply it.
   4. Feed a changed mid.
@@ -602,6 +604,30 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Bars are never lost:** `on_trade` and `on_mid` can also close bars. These wait in a buffer and come out with the next `advance()`, whatever the call order.
 - **Pointer, not reference, in `MarketView`:** tests build views by hand without charts (`nullptr`). The simulator always sets it.
 - **Regression:** no strategy reads the charts yet, so the milestone 5 runs are byte-identical, and so is the chart CSV after 09:10.
+
+### D45. Every fill records the charts as they were at that moment
+
+- **What:** a `Fill` now carries the last closed 1 s and 1 min `ChartPoint` and the VWAP, copied when the fill happens. The fills CSV gets 15 more columns: `ema_fast, ema_slow, sma, bb_pct, rsi, stoch_k, stoch_d` for `_1s` and then `_1m`, and `vwap`. Prices are ticks to 2 places, %B to 3, RSI and stoch to 2. A field is empty while that indicator is warming up, or outside the chart window.
+- **Why:** stage 1 of the testing plan asks whether a chart reading separates the toxic fills from the good ones. That needs, for each fill, what the chart said at that moment, next to its markout. Recording it in the simulator means the study reads exactly what a strategy would have seen, with no second calculation in Python that could disagree (D42, D44).
+- **What "at that moment" means:**
+  - **Bars:** every bar closed by the fill's own time. So closing the bars (`advance`) now runs first on each message, before the fill check. It only reads the past, so moving it changes nothing else.
+  - **VWAP:** the trades before this one, not the trade that filled us. The fill check runs before that trade is counted. A strategy deciding to be in the queue couldn't have known it.
+- **Only the latest bar:** a study that needs, say, the EMA slope uses the 1 s chart CSV next to the fills, joined on time.
+- **Its own number format:** the new fields are formatted in a separate stream. Setting `std::fixed` on the file's stream would change how `touch_share` prints, and the older columns must stay byte-identical.
+- **Check:** for a fill at 09:57:48.055 the snapshot equals the `chart_dump` rows for the 09:57:47 1 s bar and the 09:56 1 min bar, to the last digit. All 8,140 naive fills have a snapshot: quoting starts at 09:31, and the charts have warmed up since 09:00.
+- **Regression:** the milestone 5 reports and bootstrap tables are identical, and the first 10 columns of every fills CSV are byte-identical. `bootstrap.py` reads columns by name, so the new ones don't affect it.
+
+### D46. The hub: botbot's structure, TypeScript for the charts, C++ for the numbers
+
+- **What:** a local page for looking at a day: 1 s and 1 min candles, EMA 9/21 and VWAP, our fills marked and colored by markout, and a Stoch RSI panel. It lives in `hub/`, in the same shape as the founder's botbot research lab:
+  - **`hub/web`:** Vite + React + TypeScript + lightweight-charts, with vitest tests.
+  - **`hub/api`:** FastAPI, later.
+- **Two phases:**
+  - **Phase 1 (6c-2b):** frontend only. A small exporter writes the chart and fills as JSON into `data/hub/` (git-ignored), and Vite serves it as static files.
+  - **Phase 2 (with the trials):** the API lists runs, starts an `mm_sim` trial (under a second on the slice, D43) and compares two runs. `make dev` starts both, as in botbot.
+- **Why not one plain HTML file:** it would be simplest on day one, but the hub will grow to several pages (runs, a run's detail, signal tables, a day picker), and that is where a single file stops scaling. The founder already knows this stack, and botbot's chart components are a working example.
+- **One difference from botbot, on purpose:** botbot recomputes EMA and VWAP in TypeScript. The hub doesn't compute any indicator. Every number comes from the C++ `MarketState`, the one checked against Databento (D42). Two calculations could show a chart that disagrees with what the strategy saw.
+- **Languages:** simulation in C++, research in Python, display in TypeScript. Only the code goes in git; `node_modules` and the data stay out.
 
 ## Build
 

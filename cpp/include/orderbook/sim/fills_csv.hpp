@@ -13,8 +13,11 @@
 //   mid_x2_before,                    twice the mid just before the fill (D35)
 //   mid_x2_1s, mid_x2_10s, mid_x2_60s twice the mid that long after, capped at end_ns
 //   touch_share, shares_left          the book on our side at the fill (D33)
+//   ema_fast, ema_slow, sma, bb_pct, rsi, stoch_k, stoch_d, for _1s then _1m, and vwap:
+//                                     the charts at the fill (D45), empty when not there
 //
-// Prices are in ticks ($0.0001), mids doubled so they stay integers.
+// Prices are in ticks ($0.0001), mids doubled so they stay integers; the chart prices are
+// ticks to 2 places (not doubled).
 
 namespace ob::sim {
 

@@ -18,6 +18,12 @@ void Simulator::on_message(const std::uint8_t* p, std::size_t len) {
   const std::uint16_t locate = itch::read_u16(p + 1);
   const bool ours = locate == config_.locate;
 
+  // The charts first close the bars that are over: nothing at `now` may get into them,
+  // and a fill at `now` must see them (D45). This only reads the past, so it can go first.
+  if (ours) {
+    market_.advance(now);
+  }
+
   // 1. LOOK. Anything we sent that has reached the exchange by now is live first: it
   // was there before this event happened.
   activate(bid_, now);
@@ -45,11 +51,10 @@ void Simulator::on_message(const std::uint8_t* p, std::size_t len) {
     }
   }
 
-  // The charts, before the book changes: first close the bars that are over (nothing at
-  // `now` may get into them), then count the trade, whose price for an E is the resting
-  // order's and so must be read before the book removes it (D40, D44).
+  // Then count the trade in the charts: after the fill check, so a fill's snapshot is
+  // what was known before its own trade, and before the book changes, because an E's
+  // price is the resting order's and the book may remove it (D40, D44).
   if (ours) {
-    market_.advance(now);
     const std::optional<Trade> trade = trade_of(p, len, replay_);
     if (trade) {
       market_.on_trade(*trade);
@@ -116,6 +121,10 @@ void Simulator::check_fill(QuoteSide& q, const Order& executed, Quantity shares,
       // The last two-sided mid, from before this message was applied: the price the
       // spread is measured from. Always set while we quote; the fallback is "no spread".
       .mid_x2_before = last_mid_x2_.value_or(2 * price),
+      // Copies, not references: the charts keep moving after the fill (D45).
+      .chart_1s = market_.one_second().latest(),
+      .chart_1m = market_.one_minute().latest(),
+      .vwap = market_.vwap().value(),
   });
 
   // Buying adds shares and spends money; selling the reverse. Quantity is unsigned, so

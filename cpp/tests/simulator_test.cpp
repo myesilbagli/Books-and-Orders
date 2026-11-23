@@ -477,5 +477,36 @@ TEST(ChartsTest, OutsideTheWindowThereAreNoCharts) {
   EXPECT_FALSE(sim.market().one_second().latest());
 }
 
+// A fill records the charts as the strategy could see them at that moment (6c-2a): the
+// bars closed by the fill's own time, and the VWAP of the trades before it, not the
+// trade that filled us.
+TEST(ChartsTest, AFillRecordsTheChartsAtThatMoment) {
+  Simulator sim(charts_from_zero());
+  open_market(sim, 300 * kMs);                             // we join bid 1.0000 behind #1
+  feed(sim, add(kAapl, 3, 'B', 100, 10'000, 400 * kMs));    // behind us
+  feed(sim, executed(kAapl, 2, 40, 500 * kMs));             // 40 trade at the ask, 1.0010
+  feed(sim, executed(kAapl, 3, 60, 1'200 * kMs));           // fills our bid, in second 2
+  ASSERT_EQ(sim.fills().size(), 1u);
+  const Fill& f = sim.fills()[0];
+  ASSERT_TRUE(f.chart_1s);
+  EXPECT_EQ(f.chart_1s->bar.start_ns, 0u);  // [0 s, 1 s), closed by this very message
+  EXPECT_EQ(f.chart_1s->bar.volume, 40u);
+  EXPECT_FALSE(f.chart_1m);                // the first minute hasn't closed
+  ASSERT_TRUE(f.vwap);
+  EXPECT_DOUBLE_EQ(*f.vwap, 10'010.0);     // only the earlier trade: ours would make it 10'004
+}
+
+// Outside the chart window a fill has no snapshot.
+TEST(ChartsTest, AFillOutsideTheWindowHasNoCharts) {
+  Simulator sim(config());
+  open_market(sim, 300 * kMs);
+  feed(sim, add(kAapl, 3, 'B', 100, 10'000, 400 * kMs));
+  feed(sim, executed(kAapl, 3, 60, 1'200 * kMs));
+  ASSERT_EQ(sim.fills().size(), 1u);
+  EXPECT_FALSE(sim.fills()[0].chart_1s);
+  EXPECT_FALSE(sim.fills()[0].chart_1m);
+  EXPECT_FALSE(sim.fills()[0].vwap);
+}
+
 }  // namespace
 }  // namespace ob::sim
