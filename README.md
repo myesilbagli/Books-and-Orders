@@ -72,9 +72,14 @@ cmake --preset debug && cmake --build --preset debug && ctest --preset debug   #
 cmake --preset release && cmake --build --preset release
 ```
 
-The market data isn't in the repo: it is Nasdaq's, and large. Nasdaq publishes sample ITCH 5.0 days (`emi.nasdaq.com/ITCH`); this project uses `12302019.NASDAQ_ITCH50`, in `data/itch/`.
+The market data isn't in the repo: it is Nasdaq's, and large. Two sources, read the same way:
+- **Nasdaq's sample ITCH 5.0 days** (`emi.nasdaq.com/ITCH`): the development day `12302019.NASDAQ_ITCH50`.
+- **Any day, one stock at a time, from Databento** (XNAS.ITCH, MBO). `research/dbn_to_itch.py` turns its records back into ITCH 5.0. On the development day, the converted file gives byte-identical simulator fills to Nasdaq's own file.
 
 ```bash
+# or: a Databento MBO file for one stock, turned into ITCH 5.0
+research/.venv/bin/python research/dbn_to_itch.py data/databento/AAPL_20191230_XNAS_mbo.dbn.zst AAPL data/itch/20191230.AAPL.dbn.ITCH50
+
 # one stock's slice of the day: every tool then runs in about a second
 ./build/release/cpp/itch_extract data/itch/12302019.NASDAQ_ITCH50 AAPL data/itch/12302019.AAPL.ITCH50
 

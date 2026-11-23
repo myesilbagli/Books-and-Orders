@@ -52,6 +52,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Signal study round 2: market structure A / B / C, c per timeframe | `research/signal_study.py --round 2`, `cpp/include/orderbook/sim/market_state.hpp` | built, not yet run, D51 |
 | ATR + market structure: ZigZag swings scaled by ATR, HH/HL score (round 2) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/include/orderbook/sim/structure.hpp`, `cpp/src/sim/structure.cpp` | done (6c-2a-1), D48 |
 | Structure in every chart (1 s, 15 s, 1 min, 5 min), on every fill, in the CSVs; `chart_dump --c --swings` | `cpp/include/orderbook/sim/chart_feed.hpp`, `cpp/src/sim/market_state.cpp`, `cpp/src/sim/fills_csv.cpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/tools/chart_dump.cpp`, `research/hub_export.py` | done (6c-2a-2), D49 |
+| Databento MBO → ITCH 5.0 converter, validated on the dev day | `research/dbn_to_itch.py`, `research/test_dbn_to_itch.py` | done, D52 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -735,6 +736,26 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **What the eye sees vs what the score knows:** on the hub the founder reads 09:40-10:10 as a range, but the real-time score keeps switching between down and range there. The eye sees the finished box; the score only knows the past. Round 2 measures the real-time version, the only one a strategy can use.
 - **Regression:** the milestone 5 reports are identical, and so are the first 27 columns of every fills CSV; only `structure_1m` changed (c 2 → 1.5). Round 1's study reproduces to the digit.
 
+### D52. More days: Databento's MBO turned back into ITCH, checked against the native day
+
+- **Why:** two rounds of the signal study ended "right direction, can't tell": one day gives intervals of about ±1 ¢, and a 0.5 ¢ effect needs 4-5 days. Nasdaq's free files are from 2019-2020, too old for a market-making study today. Databento has every XNAS.ITCH day from May 2018 to yesterday, per stock: AAPL is about $0.40 and 0.3 GB a day, against 4-17 GB to download for a whole Nasdaq day.
+- **But Databento doesn't sell ITCH:** it sells its own MBO records. `research/dbn_to_itch.py` turns them back into ITCH 5.0 bytes, so the whole C++ side reads any day unchanged. The alternative, a DBN reader in C++, would add a dependency and a second input path into the simulator.
+- **How:** every ITCH message became one or more MBO records with the same `sequence` number. Each group is turned back into its message:
+  - A → A;
+  - C → D or X (tracking each order's shares left);
+  - C+A → U;
+  - T+F+C → E (or a printable C at another price);
+  - F+C → non-printable C;
+  - T → P.
+  
+  A replace must stay one message: a D followed by an A would show, for one message, a book without the order. The mid would jump and the simulator would requote on a book that never existed. Times go from UTC to New York time, summer time included.
+- **Validated on 30 Dec 2019** ($0.11), against the native ITCH file:
+  - Message counts before 19:00 ET are identical for every book message: A (with F), D, X, U, E, C, and P (with Q). The bought range ended at 19:00 ET; ITCH runs to 20:00.
+  - Not in MBO, and read by nothing here: H, I, L, Y (trading status, auction imbalance, market-participant position, short-sale flag).
+  - The 7 milestone 5 runs give byte-identical fills CSVs and bootstrap tables. Only the report's locate number differs.
+  - The chart CSV holds the same 27,385 rows. Two 15 s rows are written a few messages later, because the native file's imbalance messages (I) closed those bars on an earlier message. The swing file is byte-identical.
+- **Known differences, harmless here:** auction prints (Q) come out as P, so they count as trades the same way. Match numbers are new, but nothing reads them.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -772,6 +793,9 @@ research/export_hub.sh data/itch/12302019.AAPL.ITCH50 2019-12-30 AAPL
 
 # signal study (D47): flagged fills vs the rest, per signal, 18 tests counted
 research/.venv/bin/python research/signal_study.py data/sim/m5/naive_0us.csv --round 2   # --round 1: EMA trend and VWAP
+
+# any day from Databento (D52): MBO for one stock -> ITCH 5.0, then every tool runs on it
+research/.venv/bin/python research/dbn_to_itch.py data/databento/AAPL_20191230_XNAS_mbo.dbn.zst AAPL data/itch/20191230.AAPL.dbn.ITCH50
 
 # chart bars + indicators vs Databento's bars for the same day (D42; needs the two .dbn.zst files)
 research/.venv/bin/python research/check_chart.py data/sim/chart/AAPL_chart.csv data/databento/AAPL_20191230_XNAS_ohlcv-1m.dbn.zst data/databento/AAPL_20191230_XNAS_ohlcv-1s.dbn.zst
