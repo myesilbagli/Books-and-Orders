@@ -19,7 +19,7 @@ from datetime import date
 import bootstrap as bs
 
 CHART_FIELDS = ["open", "high", "low", "close", "vwap", "ema_fast", "ema_slow", "sma",
-                "bb_upper", "bb_lower", "bb_pct", "rsi", "stoch_k", "stoch_d"]
+                "bb_upper", "bb_lower", "bb_pct", "rsi", "stoch_k", "stoch_d", "atr"]
 HORIZONS = (1, 10, 60)
 
 
@@ -43,13 +43,15 @@ def _number(text):
 
 
 def read_chart(path, midnight):
-    """The chart CSV (D41) as {"1s": [bar, ...], "1m": [...]}, oldest first."""
-    chart = {"1s": [], "1m": []}
+    """The chart CSV (D41, D49) as {timeframe: [bar, ...]}, oldest first, for every
+    timeframe in the file (1s, 15s, 1m, 5m)."""
+    chart = {}
     with open(path, newline="") as f:
         for r in csv.DictReader(f):
             bar = {"time": chart_time(midnight, r["time_et"]), "volume": int(r["volume"])}
             bar.update({k: _number(r[k]) for k in CHART_FIELDS})
-            chart[r["timeframe"]].append(bar)
+            bar["structure"] = int(r["structure"]) if r["structure"] != "" else None
+            chart.setdefault(r["timeframe"], []).append(bar)
     return chart
 
 
@@ -85,9 +87,8 @@ def export(day, symbol, chart_csv, runs, out_dir):
     folder = os.path.join(out_dir, day_id)
     os.makedirs(folder, exist_ok=True)
 
-    chart = read_chart(chart_csv, midnight)
-    _write_json(os.path.join(folder, "chart_1s.json"), chart["1s"])
-    _write_json(os.path.join(folder, "chart_1m.json"), chart["1m"])
+    for timeframe, bars in read_chart(chart_csv, midnight).items():
+        _write_json(os.path.join(folder, f"chart_{timeframe}.json"), bars)
     for name, path in runs.items():
         _write_json(os.path.join(folder, f"fills_{name}.json"), read_fills(path, midnight))
 

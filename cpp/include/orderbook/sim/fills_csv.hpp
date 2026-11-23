@@ -15,6 +15,7 @@
 //   touch_share, shares_left          the book on our side at the fill (D33)
 //   ema_fast, ema_slow, sma, bb_pct, rsi, stoch_k, stoch_d, for _1s then _1m, and vwap:
 //                                     the charts at the fill (D45), empty when not there
+//   structure_1s, _15s, _1m, _5m      the market structure score at the fill (D49)
 //
 // Prices are in ticks ($0.0001), mids doubled so they stay integers; the chart prices are
 // ticks to 2 places (not doubled).

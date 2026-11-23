@@ -9,7 +9,8 @@ ChartFeed::ChartFeed(std::uint64_t interval_ns, ChartSettings settings)
       sma_(settings.sma),
       bollinger_(settings.bollinger_n, settings.bollinger_k),
       rsi_(settings.rsi),
-      stoch_rsi_(settings.rsi, settings.stoch, settings.stoch_k, settings.stoch_d) {}
+      stoch_rsi_(settings.rsi, settings.stoch, settings.stoch_k, settings.stoch_d),
+      structure_(settings.structure) {}
 
 std::vector<ChartPoint> ChartFeed::on_mid(std::uint64_t t_ns, Price mid_x2) {
   return close(bars_.on_mid(t_ns, mid_x2));
@@ -35,6 +36,7 @@ std::vector<ChartPoint> ChartFeed::close(const std::vector<Bar>& closed) {
     bollinger_.update(close);
     stoch_rsi_.update(close);  // has its own RSI inside
     rsi_.update(close);
+    structure_.on_bar(bar);  // ATR and swings use the bar's high and low, not just its close
     // Read every value right after this bar, before the next one: a quiet stretch closes
     // several bars at once, and each must show the indicators as they were then.
     points.push_back(ChartPoint{.bar = bar,
@@ -43,7 +45,9 @@ std::vector<ChartPoint> ChartFeed::close(const std::vector<Bar>& closed) {
                                 .sma = sma_.value(),
                                 .bollinger = bollinger_.value(),
                                 .rsi = rsi_.value(),
-                                .stoch_rsi = stoch_rsi_.value()});
+                                .stoch_rsi = stoch_rsi_.value(),
+                                .atr = structure_.atr(),
+                                .structure = structure_.score()});
   }
   if (!points.empty()) {
     latest_ = points.back();

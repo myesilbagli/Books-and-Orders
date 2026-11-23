@@ -31,10 +31,11 @@ const char* const kHeader =
     "timestamp_ns,side,price,quantity,mid_x2_before,mid_x2_1s,mid_x2_10s,mid_x2_60s,"
     "touch_share,shares_left,"
     "ema_fast_1s,ema_slow_1s,sma_1s,bb_pct_1s,rsi_1s,stoch_k_1s,stoch_d_1s,"
-    "ema_fast_1m,ema_slow_1m,sma_1m,bb_pct_1m,rsi_1m,stoch_k_1m,stoch_d_1m,vwap\n";
+    "ema_fast_1m,ema_slow_1m,sma_1m,bb_pct_1m,rsi_1m,stoch_k_1m,stoch_d_1m,vwap,"
+    "structure_1s,structure_15s,structure_1m,structure_5m\n";
 
-// No chart snapshot (outside the window): the 15 indicator fields are empty.
-const char* const kNoCharts = ",,,,,,,,,,,,,,,";
+// No chart snapshot (outside the window): the 15 indicator and 4 structure fields are empty.
+const char* const kNoCharts = ",,,,,,,,,,,,,,,,,,,";
 
 TEST(FillsCsvTest, NoFillsIsJustTheHeader) {
   std::ostringstream out;
@@ -68,6 +69,7 @@ TEST(FillsCsvTest, SellsAreMarkedS) {
 
 // With a snapshot: prices in ticks (2 places), %B to 3, RSI and stoch to 2. A 1 s chart
 // still warming up its slow EMA leaves that one field empty; the 1 m chart isn't there.
+// Then the structure score per timeframe (1 s, 15 s, 1 min, 5 min), empty if none yet.
 TEST(FillsCsvTest, WritesTheChartsAtTheFill) {
   ChartPoint s1;
   s1.ema_fast = 10'004.123;
@@ -76,15 +78,19 @@ TEST(FillsCsvTest, WritesTheChartsAtTheFill) {
                                 .percent_b = 0.2504};
   s1.rsi = 41.237;
   s1.stoch_rsi = StochRsiValue{.k = 12.5, .d = 20.0};
+  s1.structure = -2;
+  ChartPoint m5;
+  m5.structure = 2;
   Fill f = kBuy;
   f.chart_1s = s1;
+  f.chart_5m = m5;
   f.vwap = 10'002.25;
   std::ostringstream out;
   write_fills_csv(out, {f}, kMids, 100 * kSecond);
   EXPECT_EQ(out.str(), std::string(kHeader) +
                            "1000,B,10000,100,20010,20000,20020,19980,0.8,340,"
                            "10004.12,,10003.50,0.250,41.24,12.50,20.00,"
-                           ",,,,,,,10002.25\n");
+                           ",,,,,,,10002.25,-2,,,2\n");
 }
 
 }  // namespace

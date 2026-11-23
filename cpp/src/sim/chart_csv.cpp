@@ -34,7 +34,7 @@ void write_price(std::ostream& out, std::optional<double> ticks) {
 
 void write_chart_header(std::ostream& out) {
   out << "timeframe,time_et,open,high,low,close,volume,vwap,ema_fast,ema_slow,sma,"
-         "bb_upper,bb_lower,bb_pct,rsi,stoch_k,stoch_d\n";
+         "bb_upper,bb_lower,bb_pct,rsi,stoch_k,stoch_d,atr,structure\n";
 }
 
 void write_chart_row(std::ostream& out, const std::string& timeframe, const ChartPoint& point,
@@ -59,6 +59,29 @@ void write_chart_row(std::ostream& out, const std::string& timeframe, const Char
   const std::optional<StochRsiValue>& st = point.stoch_rsi;
   write_field(out, st ? std::optional<double>(st->k) : std::nullopt, 1.0, 2);
   write_field(out, st ? std::optional<double>(st->d) : std::nullopt, 1.0, 2);
+  write_price(out, point.atr);
+  out << ',';
+  if (point.structure) {
+    out << *point.structure;
+  }
+  out << '\n';
+}
+
+void write_swings_header(std::ostream& out) {
+  out << "timeframe,kind,price,time_et,confirmed_et,change\n";
+}
+
+void write_swing_row(std::ostream& out, const std::string& timeframe, const Swing& swing) {
+  out << timeframe << ',' << (swing.kind == SwingKind::High ? 'H' : 'L');
+  write_price(out, static_cast<double>(swing.price_x2) / 2.0);
+  out << ',';
+  write_time(out, swing.time_ns);
+  out << ',';
+  write_time(out, swing.confirmed_ns);
+  out << ',';
+  if (swing.change) {
+    out << *swing.change;
+  }
   out << '\n';
 }
 

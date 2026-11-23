@@ -109,5 +109,22 @@ TEST(ChartFeedTest, DefaultsAreTheChartSettings) {
   EXPECT_EQ(s.stoch_d, 3u);
 }
 
+// Every timeframe has its own ATR and market structure (D49). One mid per second makes
+// flat bars at 100, 110, 100 ticks. ATR(2): true ranges 0, 10 -> 5; then 10 -> 7.5. With
+// c = 1 the low of 100 is a swing once 110 is 5 above it, and 110 once 100 is 7.5 below.
+TEST(ChartFeedTest, EachTimeframeHasItsOwnStructure) {
+  ChartSettings s = small();
+  s.structure = StructureSettings{.atr_n = 2, .c = 1.0};
+  ChartFeed chart(kSecond, s);
+  chart.on_mid(0, 200);
+  chart.on_mid(kSecond, 220);
+  chart.on_mid(2 * kSecond, 200);
+  chart.advance(3 * kSecond);
+  ASSERT_TRUE(chart.latest()->atr);
+  EXPECT_DOUBLE_EQ(*chart.latest()->atr, 7.5);
+  ASSERT_EQ(chart.structure().swings().size(), 2u);  // the low 100, then the high 110
+  EXPECT_FALSE(chart.latest()->structure);           // two of each needed for a score
+}
+
 }  // namespace
 }  // namespace ob::sim

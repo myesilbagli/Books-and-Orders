@@ -496,6 +496,18 @@ TEST(ChartsTest, AFillRecordsTheChartsAtThatMoment) {
   EXPECT_DOUBLE_EQ(*f.vwap, 10'010.0);     // only the earlier trade: ours would make it 10'004
 }
 
+// The 15 s chart too: a fill at 16 s sees the [0 s, 15 s) bar; no 5 min bar has closed.
+TEST(ChartsTest, AFillRecordsTheFifteenSecondAndFiveMinuteCharts) {
+  Simulator sim(charts_from_zero());
+  open_market(sim, 300 * kMs);
+  feed(sim, add(kAapl, 3, 'B', 100, 10'000, 400 * kMs));
+  feed(sim, executed(kAapl, 3, 60, 16'000 * kMs));
+  ASSERT_EQ(sim.fills().size(), 1u);
+  ASSERT_TRUE(sim.fills()[0].chart_15s);
+  EXPECT_EQ(sim.fills()[0].chart_15s->bar.start_ns, 0u);
+  EXPECT_FALSE(sim.fills()[0].chart_5m);
+}
+
 // Outside the chart window a fill has no snapshot.
 TEST(ChartsTest, AFillOutsideTheWindowHasNoCharts) {
   Simulator sim(config());

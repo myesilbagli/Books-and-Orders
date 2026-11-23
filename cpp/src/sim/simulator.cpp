@@ -123,7 +123,9 @@ void Simulator::check_fill(QuoteSide& q, const Order& executed, Quantity shares,
       .mid_x2_before = last_mid_x2_.value_or(2 * price),
       // Copies, not references: the charts keep moving after the fill (D45).
       .chart_1s = market_.one_second().latest(),
+      .chart_15s = market_.fifteen_seconds().latest(),
       .chart_1m = market_.one_minute().latest(),
+      .chart_5m = market_.five_minutes().latest(),
       .vwap = market_.vwap().value(),
   });
 

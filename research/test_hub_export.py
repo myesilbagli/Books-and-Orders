@@ -8,7 +8,7 @@ import unittest
 import hub_export as hx
 
 CHART_HEADER = ("timeframe,time_et,open,high,low,close,volume,vwap,ema_fast,ema_slow,sma,"
-                "bb_upper,bb_lower,bb_pct,rsi,stoch_k,stoch_d\n")
+                "bb_upper,bb_lower,bb_pct,rsi,stoch_k,stoch_d,atr,structure\n")
 FILLS_HEADER = ("timestamp_ns,side,price,quantity,mid_x2_before,mid_x2_1s,mid_x2_10s,mid_x2_60s,"
                 "touch_share,shares_left,"
                 "ema_fast_1s,ema_slow_1s,sma_1s,bb_pct_1s,rsi_1s,stoch_k_1s,stoch_d_1s,"
@@ -36,10 +36,13 @@ class ReadChart(unittest.TestCase):
     def test_splits_timeframes_and_keeps_empty_fields_empty(self):
         with tempfile.TemporaryDirectory() as d:
             path = write(d, "chart.csv", CHART_HEADER +
-                         "1s,09:00:00,287.0000,287.0100,286.9900,287.0050,300,,,,,,,,,,\n"
+                         "1s,09:00:00,287.0000,287.0100,286.9900,287.0050,300,,,,,,,,,,,,\n"
                          "1m,09:00:00,287.0000,287.1000,286.9000,287.0500,900,"
-                         "287.0200,287.0300,287.0400,287.0100,287.2000,286.8000,0.625,55.50,12.00,20.00\n")
+                         "287.0200,287.0300,287.0400,287.0100,287.2000,286.8000,0.625,55.50,12.00,20.00,"
+                         "0.1500,-2\n"
+                         "15s,09:00:00,287.0000,287.0100,286.9900,287.0050,0,,,,,,,,,,,,\n")
             chart = hx.read_chart(path, MIDNIGHT)
+        self.assertEqual(sorted(chart), ["15s", "1m", "1s"])  # every timeframe in the file
         self.assertEqual(len(chart["1s"]), 1)
         self.assertEqual(len(chart["1m"]), 1)
         s = chart["1s"][0]
@@ -51,6 +54,9 @@ class ReadChart(unittest.TestCase):
         m = chart["1m"][0]
         self.assertEqual(m["bb_pct"], 0.625)
         self.assertEqual((m["stoch_k"], m["stoch_d"]), (12.0, 20.0))
+        self.assertEqual(m["atr"], 0.15)
+        self.assertEqual(m["structure"], -2)  # an integer: -2, -1, 0, 1, 2
+        self.assertIsNone(s["structure"])
 
 
 class ReadFills(unittest.TestCase):
@@ -90,7 +96,8 @@ class Export(unittest.TestCase):
     def test_writes_the_day_and_merges_the_index(self):
         with tempfile.TemporaryDirectory() as d:
             chart = write(d, "chart.csv", CHART_HEADER +
-                          "1s,09:00:00,287.0000,287.0100,286.9900,287.0050,300,,,,,,,,,,\n")
+                          "1s,09:00:00,287.0000,287.0100,286.9900,287.0050,300,,,,,,,,,,,,\n"
+                          "5m,09:00:00,287.0000,287.0100,286.9900,287.0050,300,,,,,,,,,,,,\n")
             fills = write(d, "fills.csv", FILLS_HEADER)
             out = os.path.join(d, "hub")
             hx.export("2019-12-30", "AAPL", chart, {"naive_0us": fills}, out)
@@ -99,7 +106,7 @@ class Export(unittest.TestCase):
                 index = json.load(f)
             day = os.path.join(out, "2019-12-30_AAPL")
             self.assertTrue(os.path.exists(os.path.join(day, "chart_1s.json")))
-            self.assertTrue(os.path.exists(os.path.join(day, "chart_1m.json")))
+            self.assertTrue(os.path.exists(os.path.join(day, "chart_5m.json")))
             self.assertTrue(os.path.exists(os.path.join(day, "fills_naive_0us.json")))
         self.assertEqual(index, {"days": [{"id": "2019-12-30_AAPL", "date": "2019-12-30",
                                            "symbol": "AAPL", "runs": ["as10_0us", "naive_0us"]}]})

@@ -82,5 +82,19 @@ TEST(MarketStateTest, StopsAtTheEnd) {
   EXPECT_TRUE(m.advance(4 * kMinute).one_second.empty());  // closed once, not again
 }
 
+// The 15 s and 5 min charts close with the others (D49): 5 minutes of one mid make twenty
+// 15 s bars, five 1 min bars and one 5 min bar.
+TEST(MarketStateTest, FifteenSecondAndFiveMinuteBars) {
+  MarketState m(MarketStateConfig{.from_ns = 0, .to_ns = 10 * kMinute, .vwap_from_ns = 0});
+  m.on_mid(kSecond, 20'000);
+  const ClosedBars closed = m.advance(5 * kMinute);
+  EXPECT_EQ(closed.fifteen_seconds.size(), 20u);
+  EXPECT_EQ(closed.one_minute.size(), 5u);
+  ASSERT_EQ(closed.five_minutes.size(), 1u);
+  EXPECT_EQ(closed.five_minutes[0].bar.end_ns, 5 * kMinute);
+  ASSERT_TRUE(m.fifteen_seconds().latest());
+  ASSERT_TRUE(m.five_minutes().latest());
+}
+
 }  // namespace
 }  // namespace ob::sim

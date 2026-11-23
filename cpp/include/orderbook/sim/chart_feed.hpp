@@ -2,6 +2,7 @@
 
 #include "orderbook/sim/bars.hpp"
 #include "orderbook/sim/indicators.hpp"
+#include "orderbook/sim/structure.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -25,6 +26,7 @@ struct ChartSettings {
   std::size_t stoch = 14;
   std::size_t stoch_k = 3;
   std::size_t stoch_d = 3;
+  StructureSettings structure;  // ATR(14), swings of 2 ATR (D48, D49)
 };
 
 // A closed bar and every indicator's value as of its close (nullopt while warming up).
@@ -37,6 +39,8 @@ struct ChartPoint {
   std::optional<BollingerValue> bollinger;
   std::optional<double> rsi;
   std::optional<StochRsiValue> stoch_rsi;
+  std::optional<double> atr;     // ticks
+  std::optional<int> structure;  // -2 down, +2 up, else range; nullopt before 2 highs + 2 lows
 };
 
 class ChartFeed {
@@ -52,6 +56,8 @@ class ChartFeed {
   // The last closed bar's point: what a strategy may look at now. Never the bar that is
   // still open (no look-ahead).
   [[nodiscard]] const std::optional<ChartPoint>& latest() const { return latest_; }
+  // Every swing so far, for drawing (a strategy needs only the score in latest()).
+  [[nodiscard]] const MarketStructure& structure() const { return structure_; }
 
  private:
   BarBuilder bars_;
@@ -61,6 +67,7 @@ class ChartFeed {
   Bollinger bollinger_;
   Rsi rsi_;
   StochRsi stoch_rsi_;
+  MarketStructure structure_;
   std::optional<ChartPoint> latest_;
 
   // Feeds closed bars to the indicators, one at a time, and records each one's point.

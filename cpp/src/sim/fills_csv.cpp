@@ -33,6 +33,14 @@ void write_chart(std::ostream& out, const std::optional<ChartPoint>& point) {
   write_field(out, p.stoch_rsi ? std::optional<double>(p.stoch_rsi->d) : std::nullopt, 2);
 }
 
+// The structure score (D49): an integer from -2 to +2, or empty before there is one.
+void write_structure(std::ostream& out, const std::optional<ChartPoint>& point) {
+  out << ',';
+  if (point && point->structure) {
+    out << *point->structure;
+  }
+}
+
 }  // namespace
 
 void write_fills_csv(std::ostream& out, const std::vector<Fill>& fills,
@@ -43,7 +51,8 @@ void write_fills_csv(std::ostream& out, const std::vector<Fill>& fills,
   out << "timestamp_ns,side,price,quantity,mid_x2_before,mid_x2_1s,mid_x2_10s,mid_x2_60s,"
          "touch_share,shares_left,"
          "ema_fast_1s,ema_slow_1s,sma_1s,bb_pct_1s,rsi_1s,stoch_k_1s,stoch_d_1s,"
-         "ema_fast_1m,ema_slow_1m,sma_1m,bb_pct_1m,rsi_1m,stoch_k_1m,stoch_d_1m,vwap\n";
+         "ema_fast_1m,ema_slow_1m,sma_1m,bb_pct_1m,rsi_1m,stoch_k_1m,stoch_d_1m,vwap,"
+         "structure_1s,structure_15s,structure_1m,structure_5m\n";
   for (const Fill& f : fills) {
     out << f.timestamp_ns << ',' << (f.side == Side::Buy ? 'B' : 'S') << ',' << f.price << ','
         << f.quantity << ',' << f.mid_x2_before;
@@ -56,6 +65,10 @@ void write_fills_csv(std::ostream& out, const std::vector<Fill>& fills,
     write_chart(out, f.chart_1s);
     write_chart(out, f.chart_1m);
     write_field(out, f.vwap, 2);
+    write_structure(out, f.chart_1s);
+    write_structure(out, f.chart_15s);
+    write_structure(out, f.chart_1m);
+    write_structure(out, f.chart_5m);
     out << '\n';
   }
 }

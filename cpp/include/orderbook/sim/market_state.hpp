@@ -9,8 +9,8 @@
 #include <optional>
 #include <vector>
 
-// One stock's charts: 1-second and 1-minute bars with their indicators, and the VWAP
-// (D44). The simulator keeps one and shows it to the strategy read-only; chart_dump uses
+// One stock's charts: 1 s, 15 s, 1 min and 5 min bars with their indicators and market
+// structure, and the VWAP (D44, D49). The simulator keeps one and shows it to the strategy read-only; chart_dump uses
 // the same class, so what a strategy sees is what was checked against Databento (D42).
 //
 // Feed it, per message of the stock, in this order:
@@ -30,7 +30,9 @@ struct MarketStateConfig {
 // The bars closed by one advance(), per timeframe, oldest first.
 struct ClosedBars {
   std::vector<ChartPoint> one_second;
+  std::vector<ChartPoint> fifteen_seconds;
   std::vector<ChartPoint> one_minute;
+  std::vector<ChartPoint> five_minutes;
 };
 
 class MarketState {
@@ -44,13 +46,17 @@ class MarketState {
   void on_mid(std::uint64_t t_ns, Price mid_x2);
 
   [[nodiscard]] const ChartFeed& one_second() const { return one_second_; }
+  [[nodiscard]] const ChartFeed& fifteen_seconds() const { return fifteen_seconds_; }
   [[nodiscard]] const ChartFeed& one_minute() const { return one_minute_; }
+  [[nodiscard]] const ChartFeed& five_minutes() const { return five_minutes_; }
   [[nodiscard]] const Vwap& vwap() const { return vwap_; }
 
  private:
   MarketStateConfig config_;
   ChartFeed one_second_;
+  ChartFeed fifteen_seconds_;
   ChartFeed one_minute_;
+  ChartFeed five_minutes_;
   Vwap vwap_;
   ClosedBars pending_;  // closed since the last advance(), waiting to be handed out
   std::optional<Price> carried_mid_x2_;  // the last mid before from_ns

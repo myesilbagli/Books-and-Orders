@@ -48,7 +48,8 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Chart snapshot on every fill (1 s + 1 min indicators, VWAP) + 15 columns in the fills CSV | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/include/orderbook/sim/fills_csv.hpp`, `cpp/src/sim/fills_csv.cpp` | done (6c-2a), D45 |
 | Local research hub, phase 1: candles, EMA 9/21, VWAP, Bollinger, Stoch RSI, our fills colored by markout; exporter to JSON | `hub/web/`, `research/hub_export.py`, `research/test_hub_export.py` | done (6c-2b), D46 |
 | Signal study: do chart readings (EMA trend 1m / 1s, VWAP) pick out the losing fills? (stage 1) | `research/signal_study.py`, `research/test_signal_study.py` | built (6c-2c-1), not yet run on the day, D47 |
-| ATR + market structure: ZigZag swings scaled by ATR, HH/HL score (round 2) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/include/orderbook/sim/structure.hpp`, `cpp/src/sim/structure.cpp` | done (6c-2a-1), not yet in `MarketState`, D48 |
+| ATR + market structure: ZigZag swings scaled by ATR, HH/HL score (round 2) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/include/orderbook/sim/structure.hpp`, `cpp/src/sim/structure.cpp` | done (6c-2a-1), D48 |
+| Structure in every chart (1 s, 15 s, 1 min, 5 min), on every fill, in the CSVs; `chart_dump --c --swings` | `cpp/include/orderbook/sim/chart_feed.hpp`, `cpp/src/sim/market_state.cpp`, `cpp/src/sim/fills_csv.cpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/tools/chart_dump.cpp`, `research/hub_export.py` | done (6c-2a-2), D49 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -676,7 +677,32 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - Before the first swing, one bar that holds both extremes waits for a later bar.
 - **During the ATR warm-up** the extremes are followed, but nothing is confirmed.
 - **Choosing c:** chosen by eye on the hub, from a few precomputed values, with the fills hidden. Picking it from the results would be a test per value.
-- **Next (6c-2a-2):** 15 s and 5 min bars in `MarketState`, a structure per timeframe, and the score on every fill.
+
+### D49. Structure on every chart and every fill; 15 s and 5 min charts
+
+- **Inside `ChartFeed`:** each timeframe's chart now also runs its own `MarketStructure`. `ChartPoint` gains `atr` and `structure`. The structure is just another indicator of the bars: computed in one place, shown to strategies, written to the CSVs and drawn on the hub (D42, D46).
+- **Four timeframes:** `MarketState` adds 15 s and 5 min charts to the 1 s and 1 min ones. The founder reads structure on 1 min and 5 min, and thinks 15 s may show it too.
+- **On every fill:** `Fill` keeps the 15 s and 5 min points too. The fills CSV gains `structure_1s, _15s, _1m, _5m`: an integer from −2 to +2, empty before there is one.
+- **Chart CSV:** gains `atr` (dollars) and `structure` columns, and 15 s and 5 min rows. `chart_dump --swings` also writes every confirmed swing (when it was made, when it was confirmed, and higher/lower than the last). `--c` sets the swing size for all timeframes, so the hub can show several c values side by side.
+- **Regression:**
+  - The 1 s and 1 min rows are byte-identical in their old 17 columns.
+  - The Databento check is unchanged (volume 100 %, indicator code to the last digit).
+  - The milestone 5 reports and bootstrap tables are identical, and so are the first 25 columns of every fills CSV.
+- **What c = 2 gives on the dev day:**
+
+  | timeframe | swings | regular session up / down / range |
+  |---|---|---|
+  | 1 s | 3,278 | 30 / 31 / 38 % |
+  | 15 s | 186 | 37 / 27 / 36 % |
+  | 1 min | 52 | 33 / 35 / 32 % |
+  | 5 min | 5 | no score until 15:20 |
+
+  These are descriptive only: no markouts were looked at.
+- **Known gap, the 5 min warm-up:** ATR(14) on 5 min bars needs 70 minutes from the 09:00 start, and two highs and two lows of 2 ATR take most of the day. 83 % of the naive fills have no 5 min score. Fixes to weigh in 6c-2b:
+  - start the charts at 04:00 (pre-market is thin, but it warms the ATR);
+  - carry the previous day's bars over;
+  - use a smaller c for 5 min.
+  Any of them changes the round 1 inputs slightly, so it's recorded before round 2 runs.
 
 ## Build
 
@@ -698,7 +724,7 @@ cmake --preset release && cmake --build --preset release
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --pull 0.2   # no quote on a side under 20% of the touch
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --rebate 0.2   # add a 0.2 cent/share maker rebate
 ./build/release/cpp/imbalance_study data/itch/12302019.NASDAQ_ITCH50 AAPL   # does queue imbalance predict the mid?
-./build/release/cpp/chart_dump data/itch/12302019.NASDAQ_ITCH50 AAPL data/sim/chart/AAPL_chart.csv   # 1 s + 1 min bars and indicators [--from 09:00] [--vwap-from 09:30]
+./build/release/cpp/chart_dump data/itch/12302019.NASDAQ_ITCH50 AAPL data/sim/chart/AAPL_chart.csv --swings data/sim/chart/AAPL_swings_c2.csv   # 1 s, 15 s, 1 min, 5 min bars, indicators, structure [--from 09:00] [--vwap-from 09:30] [--c 2]
 
 # research (Python, standard library only)
 research/.venv/bin/python -m unittest discover -s research

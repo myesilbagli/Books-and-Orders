@@ -23,11 +23,13 @@ struct Fill {
   double touch_share = 0.0;       // our side's size at the touch / both sides' sizes there
   std::uint64_t shares_left = 0;  // real shares left at our price after this execution
   Price mid_x2_before = 0;        // twice the mid just before the fill: the spread we earned
-  // The charts as the strategy could see them at the fill (D45): the last closed 1 s and
-  // 1 min bars with their indicators, and the VWAP of the trades before this one. Empty
-  // outside the chart window or while nothing has closed yet.
+  // The charts as the strategy could see them at the fill (D45, D49): the last closed bar
+  // of each timeframe with its indicators and structure, and the VWAP of the trades
+  // before this one. Empty outside the chart window or while nothing has closed yet.
   std::optional<ChartPoint> chart_1s;
+  std::optional<ChartPoint> chart_15s;
   std::optional<ChartPoint> chart_1m;
+  std::optional<ChartPoint> chart_5m;
   std::optional<double> vwap;  // ticks
 };
 
