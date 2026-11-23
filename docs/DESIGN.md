@@ -756,6 +756,17 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - The chart CSV holds the same 27,385 rows. Two 15 s rows are written a few messages later, because the native file's imbalance messages (I) closed those bars on an earlier message. The swing file is byte-identical.
 - **Known differences, harmless here:** auction prints (Q) come out as P, so they count as trades the same way. Match numbers are new, but nothing reads them.
 
+### D53. The study days: random development days, the latest days held out
+
+- **Development, 10 days:** drawn at random from January-September 2026 by `research/pick_days.py`, seed 20261123. They are 4 Feb, 3 Mar, 9 Mar, 21 May, 27 May, 7 Jul, 23 Jul, 30 Jul, 5 Aug and 2 Sep.
+  - A random draw spreads them over many months and market moods.
+  - No one picks "interesting" days, which would bias every result.
+- **Hold-out, 10 days:** the last 10 trading days to 20 Nov 2026 (9-20 Nov). They are not looked at until a rule is final. Then they give the verdict, once.
+  - Being later than every development day, they test what matters: a rule built on the past, used on the future.
+- **The calendar:** full trading days only. 2026 holidays and the two early closes are left out, since quoting runs to 16:00. Each day's Databento size was checked before buying; none is near empty.
+- **One stock for now:** AAPL, on which the converter (D52) and every result so far stand. A rule that passes on AAPL is then checked once on MSFT, unchanged. A basket comes in milestone 7.
+- **Recorded before any of these days was downloaded.** Cost: $8.48 for the 20 days, 7.6 GB before compression.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
