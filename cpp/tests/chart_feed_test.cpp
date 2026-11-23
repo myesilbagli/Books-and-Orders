@@ -107,6 +107,7 @@ TEST(ChartFeedTest, DefaultsAreTheChartSettings) {
   EXPECT_EQ(s.stoch, 14u);
   EXPECT_EQ(s.stoch_k, 3u);
   EXPECT_EQ(s.stoch_d, 3u);
+  EXPECT_EQ(s.efficiency, 10u);  // Kaufman's, on every timeframe (D57)
 }
 
 // Every timeframe has its own ATR and market structure (D49). One mid per second makes
@@ -124,6 +125,22 @@ TEST(ChartFeedTest, EachTimeframeHasItsOwnStructure) {
   EXPECT_DOUBLE_EQ(*chart.latest()->atr, 7.5);
   ASSERT_EQ(chart.structure().swings().size(), 2u);  // the low 100, then the high 110
   EXPECT_FALSE(chart.latest()->structure);           // two of each needed for a score
+}
+
+// Each closed bar carries its efficiency ratio. ER(2) on closes 100, 110, 100: net 0 over a
+// path of 20, so 0; nothing before the third close.
+TEST(ChartFeedTest, EachPointHasItsEfficiencyRatio) {
+  ChartSettings s = small();
+  s.efficiency = 2;
+  ChartFeed chart(kSecond, s);
+  chart.on_mid(0, 200);
+  chart.on_mid(kSecond, 220);
+  chart.advance(2 * kSecond);
+  EXPECT_FALSE(chart.latest()->er);
+  chart.on_mid(2 * kSecond, 200);
+  chart.advance(3 * kSecond);
+  ASSERT_TRUE(chart.latest()->er);
+  EXPECT_DOUBLE_EQ(*chart.latest()->er, 0.0);
 }
 
 }  // namespace

@@ -56,6 +56,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | The 10 development days (2026), converted and replay-checked | `research/convert_days.sh`, `research/pick_days.py` | done, D53, D54 |
 | Baseline on the 10 development days, one line per day (6d-1) | `research/run_days.sh`, `research/day_summary.py` | done, D55 |
 | Signal study over several days: within-day difference, stratified bootstrap, days worse (6d-2) | `research/signal_study.py` (`study_days`) | done, D56 |
+| Efficiency ratio (10 bars) on every chart, every fill, both CSVs (6e-1) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/src/sim/chart_feed.cpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/src/sim/fills_csv.cpp` | done, D57 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -821,6 +822,19 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Days worse:** on how many days the flagged fills did worse. 8 of 10 in the same direction says more than an average that one big day could drive.
 - **One day is the old study exactly:** with one day, the draws are bootstrap.py's draws in the same order, and the weighted average of one day is that day's difference. The 30 Dec 2019 rounds 1 and 2 reproduce to the digit (a test checks it too).
 - **Speed:** 10 days, 265 K fills, round 2: 4.5 s.
+
+### D57. Trend strength: Kaufman's efficiency ratio on every chart
+
+- **Why:** the structure score (D48) gives a direction but not a strength. A market that makes HH/HL slowly and one that runs both read +2. And "range" there means only "not a clean trend": it includes the turn from one trend to the next. Round 2's exploratory idea was that the structure helps only when the trend is strong (D51).
+- **What:** ER = |close now − close n bars ago| / Σ |close-to-close changes| over those n bars. 1 is a straight line, near 0 is a lot of movement going nowhere. It has no direction: the structure gives that.
+  - Example over 5 bars: +10 +8 +12 +6 +9 is 45 / 45 = 1.0; +10 −12 +10 −12 +9 is 5 / 53 = 0.09.
+  - **n = 10 bars on every timeframe** (founder, 24 Nov 2026), Kaufman's own period: 10 minutes on 1 min, 2.5 minutes on 15 s.
+  - A price that didn't move at all is 0 / 0, read as 0: not a trend.
+  - Closes, like the EMAs. The path is summed again each bar: with 10 changes that costs nothing, and a running sum of doubles would drift.
+- **Rejected:** ADX (better known, but smoothed twice, so late, and hard to explain); regression R² and the variance ratio (two more choices each, for the same question).
+- **Where:** each `ChartFeed` (1 s, 15 s, 1 min, 5 min) has one, so it is in every `ChartPoint`, in the chart CSV (`er`), and at every fill (`er_1s, er_15s, er_1m, er_5m`, the last columns, so the first 29 stay byte-identical). The signal study reads them; an older CSV without them reads as missing.
+- **Thresholds come next (6e-2):** the hub shades trend and range from the structure and the ER, with the two ER thresholds picked by eye, fills hidden, as c was. The hub only compares the ER with a threshold; it computes nothing.
+- **Regression:** the milestone 5 runs and the 10-day baseline give byte-identical first 29 columns and identical reports and bootstrap tables (only the run time line changes).
 
 ## Build
 

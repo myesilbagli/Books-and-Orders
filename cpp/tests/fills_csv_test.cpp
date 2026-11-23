@@ -32,10 +32,11 @@ const char* const kHeader =
     "touch_share,shares_left,"
     "ema_fast_1s,ema_slow_1s,sma_1s,bb_pct_1s,rsi_1s,stoch_k_1s,stoch_d_1s,"
     "ema_fast_1m,ema_slow_1m,sma_1m,bb_pct_1m,rsi_1m,stoch_k_1m,stoch_d_1m,vwap,"
-    "structure_1s,structure_15s,structure_1m,structure_5m\n";
+    "structure_1s,structure_15s,structure_1m,structure_5m,er_1s,er_15s,er_1m,er_5m\n";
 
-// No chart snapshot (outside the window): the 15 indicator and 4 structure fields are empty.
-const char* const kNoCharts = ",,,,,,,,,,,,,,,,,,,";
+// No chart snapshot (outside the window): the 15 indicator, 4 structure and 4 ER fields
+// are empty.
+const char* const kNoCharts = ",,,,,,,,,,,,,,,,,,,,,,,";
 
 TEST(FillsCsvTest, NoFillsIsJustTheHeader) {
   std::ostringstream out;
@@ -69,7 +70,8 @@ TEST(FillsCsvTest, SellsAreMarkedS) {
 
 // With a snapshot: prices in ticks (2 places), %B to 3, RSI and stoch to 2. A 1 s chart
 // still warming up its slow EMA leaves that one field empty; the 1 m chart isn't there.
-// Then the structure score per timeframe (1 s, 15 s, 1 min, 5 min), empty if none yet.
+// Then the structure score per timeframe (1 s, 15 s, 1 min, 5 min), empty if none yet, and
+// the efficiency ratio per timeframe to 3 places (D57).
 TEST(FillsCsvTest, WritesTheChartsAtTheFill) {
   ChartPoint s1;
   s1.ema_fast = 10'004.123;
@@ -79,6 +81,7 @@ TEST(FillsCsvTest, WritesTheChartsAtTheFill) {
   s1.rsi = 41.237;
   s1.stoch_rsi = StochRsiValue{.k = 12.5, .d = 20.0};
   s1.structure = -2;
+  s1.er = 0.4567;
   ChartPoint m5;
   m5.structure = 2;
   Fill f = kBuy;
@@ -90,7 +93,7 @@ TEST(FillsCsvTest, WritesTheChartsAtTheFill) {
   EXPECT_EQ(out.str(), std::string(kHeader) +
                            "1000,B,10000,100,20010,20000,20020,19980,0.8,340,"
                            "10004.12,,10003.50,0.250,41.24,12.50,20.00,"
-                           ",,,,,,,10002.25,-2,,,2\n");
+                           ",,,,,,,10002.25,-2,,,2,0.457,,,\n");
 }
 
 }  // namespace

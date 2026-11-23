@@ -27,6 +27,7 @@ struct ChartSettings {
   std::size_t stoch_k = 3;
   std::size_t stoch_d = 3;
   StructureSettings structure;  // ATR(14), swings of 2 ATR (D48, D49)
+  std::size_t efficiency = 10;  // efficiency ratio over 10 bars, Kaufman's (D57)
 };
 
 // A closed bar and every indicator's value as of its close (nullopt while warming up).
@@ -41,6 +42,7 @@ struct ChartPoint {
   std::optional<StochRsiValue> stoch_rsi;
   std::optional<double> atr;     // ticks
   std::optional<int> structure;  // -2 down, +2 up, else range; nullopt before 2 highs + 2 lows
+  std::optional<double> er;      // efficiency ratio, 0 (going nowhere) to 1 (straight line)
 };
 
 class ChartFeed {
@@ -68,6 +70,7 @@ class ChartFeed {
   Rsi rsi_;
   StochRsi stoch_rsi_;
   MarketStructure structure_;
+  EfficiencyRatio er_;
   std::optional<ChartPoint> latest_;
 
   // Feeds closed bars to the indicators, one at a time, and records each one's point.

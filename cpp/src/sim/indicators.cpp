@@ -217,4 +217,29 @@ std::optional<double> Atr::value() const {
   return atr_;
 }
 
+EfficiencyRatio::EfficiencyRatio(std::size_t n) : n_(n) {}
+
+void EfficiencyRatio::update(double close) {
+  closes_.push_back(close);
+  if (closes_.size() > n_ + 1) {
+    closes_.pop_front();
+  }
+}
+
+std::optional<double> EfficiencyRatio::value() const {
+  if (n_ == 0 || closes_.size() < n_ + 1) {
+    return std::nullopt;
+  }
+  // n is 10: summing the path again each bar is simpler than keeping a running sum, and
+  // a running sum of doubles would drift.
+  double path = 0.0;
+  for (std::size_t i = 1; i < closes_.size(); ++i) {
+    path += std::abs(closes_[i] - closes_[i - 1]);
+  }
+  if (path == 0.0) {
+    return 0.0;  // 0 / 0: no movement at all is not a trend
+  }
+  return std::abs(closes_.back() - closes_.front()) / path;
+}
+
 }  // namespace ob::sim

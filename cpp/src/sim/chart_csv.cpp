@@ -34,7 +34,7 @@ void write_price(std::ostream& out, std::optional<double> ticks) {
 
 void write_chart_header(std::ostream& out) {
   out << "timeframe,time_et,open,high,low,close,volume,vwap,ema_fast,ema_slow,sma,"
-         "bb_upper,bb_lower,bb_pct,rsi,stoch_k,stoch_d,atr,structure\n";
+         "bb_upper,bb_lower,bb_pct,rsi,stoch_k,stoch_d,atr,structure,er\n";
 }
 
 void write_chart_row(std::ostream& out, const std::string& timeframe, const ChartPoint& point,
@@ -64,6 +64,7 @@ void write_chart_row(std::ostream& out, const std::string& timeframe, const Char
   if (point.structure) {
     out << *point.structure;
   }
+  write_field(out, point.er, 1.0, 3);
   out << '\n';
 }
 

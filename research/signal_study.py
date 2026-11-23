@@ -31,7 +31,8 @@ import bootstrap as bs
 INDICATOR_COLUMNS = [f"{name}_{tf}" for tf in ("1s", "1m")
                      for name in ("ema_fast", "ema_slow", "sma", "bb_pct", "rsi", "stoch_k",
                                   "stoch_d")] + ["vwap"] + [
-                         f"structure_{tf}" for tf in ("1s", "15s", "1m", "5m")]  # D49
+                         f"structure_{tf}" for tf in ("1s", "15s", "1m", "5m")] + [  # D49
+                         f"er_{tf}" for tf in ("1s", "15s", "1m", "5m")]  # D57
 HORIZONS = (1, 10)
 PRIMARY_HORIZON = 10  # the horizon milestone 5 judged everything at
 BLOCK_NS = 5 * bs.MINUTE_NS
@@ -141,7 +142,9 @@ def read_rows(path):
                                  mid_x2_before=int(r["mid_x2_before"]),
                                  mid_x2_1s=int(r["mid_x2_1s"]), mid_x2_10s=int(r["mid_x2_10s"]),
                                  mid_x2_60s=int(r["mid_x2_60s"])),
-                    indicators={c: float(r[c]) if r[c] != "" else None for c in INDICATOR_COLUMNS})
+                    # .get: CSVs from before a column existed read it as missing (warming up)
+                    indicators={c: float(r[c]) if r.get(c, "") != "" else None
+                                for c in INDICATOR_COLUMNS})
                 for r in csv.DictReader(f)]
 
 

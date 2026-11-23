@@ -80,6 +80,19 @@ class ReadRows(unittest.TestCase):
         self.assertEqual(rows[0].indicators["structure_1m"], -2)
         self.assertIsNone(rows[0].indicators["structure_15s"])
 
+    # The efficiency ratio per timeframe (D57); a CSV from before it existed reads as missing.
+    def test_reads_the_efficiency_ratio_and_older_files_without_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            new, old = os.path.join(d, "new.csv"), os.path.join(d, "old.csv")
+            fill = f"{SECOND},B,10000,100,20010,20000,20020,19980,0.8,340," + "," * 14 + ",,,-2,"
+            with open(new, "w") as f:
+                f.write(HEADER.rstrip("\n") + ",er_1s,er_15s,er_1m,er_5m\n" + fill + ",,,0.731,\n")
+            with open(old, "w") as f:
+                f.write(HEADER + fill + "\n")
+            self.assertEqual(ss.read_rows(new)[0].indicators["er_1m"], 0.731)
+            self.assertIsNone(ss.read_rows(new)[0].indicators["er_15s"])
+            self.assertIsNone(ss.read_rows(old)[0].indicators["er_1m"])
+
 
 def day_of_fills():
     """Every 5-minute block of the quoting day has two buys: one in a 1 min downtrend that

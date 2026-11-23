@@ -197,5 +197,57 @@ TEST(AtrTest, TrueRangeIncludesTheGapFromThePreviousClose) {
   EXPECT_DOUBLE_EQ(*atr.value(), 2.0);
 }
 
+// Efficiency ratio (D57): net move over the path. Five closes up by 10, 8, 12, 6, 9:
+// net 45, path 45, so 1.0, a straight line. Needs n + 1 closes (n changes).
+TEST(EfficiencyRatioTest, AStraightLineIsOne) {
+  EfficiencyRatio er(5);
+  for (const double c : {0.0, 10.0, 18.0, 30.0, 36.0}) {
+    er.update(c);
+  }
+  EXPECT_FALSE(er.value());  // 4 changes, 5 needed
+  er.update(45.0);
+  ASSERT_TRUE(er.value());
+  EXPECT_DOUBLE_EQ(*er.value(), 1.0);
+}
+
+// Back and forth: +10, -12, +10, -12, +9. The path is 53 but the price ended 5 up: 5 / 53.
+TEST(EfficiencyRatioTest, BackAndForthIsNearZero) {
+  EfficiencyRatio er(5);
+  for (const double c : {0.0, 10.0, -2.0, 8.0, -4.0, 5.0}) {
+    er.update(c);
+  }
+  EXPECT_DOUBLE_EQ(*er.value(), 5.0 / 53.0);
+}
+
+// A fall is as efficient as a rise: the ratio has no direction (the structure gives it).
+TEST(EfficiencyRatioTest, DirectionDoesNotMatter) {
+  EfficiencyRatio er(2);
+  for (const double c : {10.0, 5.0, 0.0}) {
+    er.update(c);
+  }
+  EXPECT_DOUBLE_EQ(*er.value(), 1.0);
+}
+
+// Only the last n changes: after 0 -> 10 -> 0 -> 10, ER(2) sees +10 -10 ... then -10 +10.
+// Window (10, 0, 10): net 0, path 20: 0. Then a close at 20: (0, 10, 20): 1.
+TEST(EfficiencyRatioTest, OnlyTheLastNChanges) {
+  EfficiencyRatio er(2);
+  for (const double c : {0.0, 10.0, 0.0, 10.0}) {
+    er.update(c);
+  }
+  EXPECT_DOUBLE_EQ(*er.value(), 0.0);
+  er.update(20.0);
+  EXPECT_DOUBLE_EQ(*er.value(), 1.0);
+}
+
+// No movement at all: 0 / 0. Read as 0: a price that goes nowhere is not trending.
+TEST(EfficiencyRatioTest, FlatIsZero) {
+  EfficiencyRatio er(3);
+  for (int i = 0; i < 4; ++i) {
+    er.update(7.0);
+  }
+  EXPECT_DOUBLE_EQ(*er.value(), 0.0);
+}
+
 }  // namespace
 }  // namespace ob::sim

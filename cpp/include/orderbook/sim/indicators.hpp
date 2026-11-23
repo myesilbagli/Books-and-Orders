@@ -117,6 +117,21 @@ class Atr {
   double atr_ = 0.0;
 };
 
+// Kaufman's efficiency ratio: how straight the price went over the last n bars, 0 to 1.
+// |close now - close n bars ago| / sum of |each change| over those n bars. 1 is a straight
+// line (a trend), near 0 a lot of movement going nowhere (a range). No direction: the
+// structure gives that (D57). A price that didn't move at all reads 0.
+class EfficiencyRatio {
+ public:
+  explicit EfficiencyRatio(std::size_t n);
+  void update(double close);
+  [[nodiscard]] std::optional<double> value() const;
+
+ private:
+  std::size_t n_;
+  std::deque<double> closes_;  // the last n + 1 closes: n changes between them
+};
+
 // Volume-weighted average price of the trades from start_ns on (09:30 for the regular
 // session; earlier to include pre-market). Updated on every trade, not per bar.
 class Vwap {
