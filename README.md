@@ -60,7 +60,7 @@ fills CSV (each fill with the charts as they were at that moment)
 | `cpp/` | The C++20 library, tools (`mm_sim`, `chart_dump`, `itch_extract`, …) and GoogleTest tests |
 | `research/` | Python analysis: bootstrap, signal study, exports for the hub |
 | `hub/web/` | The chart hub: Vite + React + TypeScript + lightweight-charts |
-| `docs/DESIGN.md` | Every component and every design decision, with its reason (D1–D50) |
+| `docs/DESIGN.md` | Every component and every design decision, numbered (D1, D2, …), with its reason |
 | `docs/RESULTS.md` | Milestone 5 results on one page |
 
 ## Build and run
