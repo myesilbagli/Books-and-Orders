@@ -46,7 +46,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | One-stock ITCH extract (`itch_extract`): same format, runs in seconds | `cpp/include/orderbook/itch/extract.hpp`, `cpp/src/itch/extract.cpp`, `cpp/tools/itch_extract.cpp` | done (6c-0), D43 |
 | `MarketState` (1 s + 1 min charts, VWAP) shown to the strategy; `chart_dump` uses the same class | `cpp/include/orderbook/sim/market_state.hpp`, `cpp/src/sim/market_state.cpp`, `cpp/include/orderbook/sim/strategy.hpp`, `cpp/src/sim/simulator.cpp` | done (6c-1), D44 |
 | Chart snapshot on every fill (1 s + 1 min indicators, VWAP) + 15 columns in the fills CSV | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/include/orderbook/sim/fills_csv.hpp`, `cpp/src/sim/fills_csv.cpp` | done (6c-2a), D45 |
-| Local research hub (charts with our fills) | `hub/` | planned (6c-2b), D46 |
+| Local research hub, phase 1: candles, EMA 9/21, VWAP, Bollinger, Stoch RSI, our fills colored by markout; exporter to JSON | `hub/web/`, `research/hub_export.py`, `research/test_hub_export.py` | done (6c-2b), D46 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -628,6 +628,13 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Why not one plain HTML file:** it would be simplest on day one, but the hub will grow to several pages (runs, a run's detail, signal tables, a day picker), and that is where a single file stops scaling. The founder already knows this stack, and botbot's chart components are a working example.
 - **One difference from botbot, on purpose:** botbot recomputes EMA and VWAP in TypeScript. The hub doesn't compute any indicator. Every number comes from the C++ `MarketState`, the one checked against Databento (D42). Two calculations could show a chart that disagrees with what the strategy saw.
 - **Languages:** simulation in C++, research in Python, display in TypeScript. Only the code goes in git; `node_modules` and the data stay out.
+- **Phase 1 as built (6c-2b):**
+  - **Exporter (`research/hub_export.py`):** reads `chart_dump`'s CSV and `mm_sim`'s fills CSVs and writes `data/hub/<date>_<symbol>/chart_1s.json`, `chart_1m.json`, `fills_<run>.json`, plus an `index.json` of days and runs. A second export adds runs to the index instead of replacing it. Markouts use `bootstrap.py`'s own formula, in cents a share.
+  - **Time:** Eastern wall-clock time is written as if it were UTC. The chart library shows UTC, so its axis reads 09:30 at 09:30 ET with no time-zone code in the page.
+  - **Fills grouped per bar:** a sweep fills us several times in one second, and a 1 min bar holds dozens of fills. One arrow per side per bar, colored by the share-weighted markout (green above 0, red below), keeps the chart readable; the legend lists the bar's fills. This grouping is the only arithmetic in the page, and it is display, not an indicator.
+  - **Packages:** only what one page needs: react, react-dom and lightweight-charts, plus vite, typescript and vitest for development (76 MB). botbot's versions, pinned exactly. Tailwind, the router and react-query come when a page needs them.
+  - **One chart, two panes:** Stoch RSI sits under the price in the same chart, so the two time axes can't drift apart when scrolling.
+  - **Check:** the page's run summary for naive 0 µs is 8,140 fills, 468,479 shares, −0.84 ¢ a share at 10 s, the same as RESULTS.md.
 
 ## Build
 
@@ -659,6 +666,10 @@ research/.venv/bin/python research/bootstrap.py data/sim/ci/naive_0us.csv data/s
 
 # every milestone 5 number in docs/RESULTS.md: 7 runs in parallel + bootstrap tables
 research/run_m5.sh data/itch/12302019.NASDAQ_ITCH50   # writes data/sim/m5/
+
+# the hub (D46): export a day, then open http://127.0.0.1:5174
+research/.venv/bin/python research/hub_export.py 2019-12-30 AAPL data/sim/chart/AAPL_chart.csv naive_0us=data/sim/m5/naive_0us.csv as10_0us=data/sim/m5/as10_0us.csv
+(cd hub/web && npm install && npm test && npm run dev)
 
 # chart bars + indicators vs Databento's bars for the same day (D42; needs the two .dbn.zst files)
 research/.venv/bin/python research/check_chart.py data/sim/chart/AAPL_chart.csv data/databento/AAPL_20191230_XNAS_ohlcv-1m.dbn.zst data/databento/AAPL_20191230_XNAS_ohlcv-1s.dbn.zst

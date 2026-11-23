@@ -1,0 +1,19 @@
+* { box-sizing: border-box; }
+body { margin: 0; font: 13px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111827; background: #f9fafb; }
+.app { display: flex; flex-direction: column; height: 100vh; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 10px 16px; background: #fff; border-bottom: 1px solid #e5e7eb; }
+h1 { font-size: 15px; margin: 0 8px 0 0; }
+label { display: flex; align-items: center; gap: 6px; color: #4b5563; }
+select { font: inherit; padding: 3px 6px; }
+.toggle button { font: inherit; padding: 3px 10px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; }
+.toggle button + button { border-left: none; }
+.toggle button.on { background: #111827; color: #fff; border-color: #111827; }
+.check { cursor: pointer; }
+.summary { margin-left: auto; color: #374151; font-variant-numeric: tabular-nums; }
+.error { margin: 8px 16px; color: #b91c1c; }
+.chart-area { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 8px 16px 16px; }
+.legend { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 2px 12px; height: 44px; overflow: hidden; padding: 2px 0 6px; font-variant-numeric: tabular-nums; color: #374151; }
+.ema-fast { color: #d97706; }
+.ema-slow { color: #2563eb; }
+.vwap { color: #9333ea; }
+.chart { flex: 1; min-height: 0; background: #fff; border: 1px solid #e5e7eb; }

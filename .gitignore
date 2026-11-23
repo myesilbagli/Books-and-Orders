@@ -17,3 +17,8 @@ data/
 
 # Python bytecode
 __pycache__/
+
+# Local editor/agent config and the hub's installed packages and build
+.claude/
+node_modules/
+hub/web/dist/
