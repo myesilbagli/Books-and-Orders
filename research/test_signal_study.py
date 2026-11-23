@@ -49,17 +49,8 @@ class Readings(unittest.TestCase):
         self.assertEqual(vwap(ind(vwap=100.0), 100.5), 1)
         self.assertIsNone(vwap(ind(), 100.0))  # before 09:30 there is no VWAP
 
-    def test_bollinger_is_outside_the_bands_only(self):
-        bands = ss.SIGNALS[3].reading
-        self.assertEqual(bands(ind(bb_pct_1m=-0.1), 0), -1)
-        self.assertEqual(bands(ind(bb_pct_1m=0.5), 0), 0)
-        self.assertEqual(bands(ind(bb_pct_1m=1.2), 0), 1)
-
-    def test_stoch_rsi_uses_20_and_80(self):
-        stoch = ss.SIGNALS[4].reading
-        self.assertEqual(stoch(ind(stoch_k_1m=15.0), 0), -1)
-        self.assertEqual(stoch(ind(stoch_k_1m=20.0), 0), 0)  # at the line is not past it
-        self.assertEqual(stoch(ind(stoch_k_1m=85.0), 0), 1)
+    def test_only_the_three_signals_the_founder_expects_something_from(self):
+        self.assertEqual([s.name for s in ss.SIGNALS], ["1m trend", "1s trend", "VWAP"])
 
 
 class Flagged(unittest.TestCase):
@@ -107,10 +98,12 @@ class Study(unittest.TestCase):
         return next(r for r in self.results
                     if (r.signal, r.horizon, r.period) == (signal, horizon, period))
 
-    # 5 signals x 2 horizons x 3 periods; the primary ones are 10 s over the whole day.
+    # 3 signals x 2 horizons x 3 periods; the primary ones are 10 s over the whole day,
+    # and Bonferroni holds each of the 3 to 5 % / 3.
     def test_counts_every_test(self):
-        self.assertEqual(len(self.results), 30)
-        self.assertEqual(sum(r.primary for r in self.results), 5)
+        self.assertEqual(len(self.results), 18)
+        self.assertEqual(sum(r.primary for r in self.results), 3)
+        self.assertAlmostEqual(ss.CORRECTED_LEVEL, 1 - 0.05 / 3)
 
     # The same in every block, so every resampled day gives the same answer: -2 - (+1).
     def test_flagged_minus_the_rest(self):

@@ -2,7 +2,7 @@
 
     research/.venv/bin/python research/signal_study.py data/sim/m5/naive_0us.csv
 
-For each signal, a fill is "flagged" when we traded against the signal's reading: we
+For each signal (1 min and 1 s EMA trend, VWAP), a fill is "flagged" when we traded against the signal's reading: we
 bought while it said the price was low or falling, or sold while it said high or rising.
 Those are the fills a rule on that signal would have stepped away from. The study
 compares the flagged fills' P&L per share with the rest's, at 1 s and 10 s, over the
@@ -55,20 +55,6 @@ def _vwap(ind, mid):
     return None if ind["vwap"] is None else _sign(mid - ind["vwap"])
 
 
-def _bollinger(ind, mid):
-    b = ind["bb_pct_1m"]
-    if b is None:
-        return None
-    return -1 if b < 0 else (1 if b > 1 else 0)  # only outside the bands says anything
-
-
-def _stoch(ind, mid):
-    k = ind["stoch_k_1m"]
-    if k is None:
-        return None
-    return -1 if k < 20 else (1 if k > 80 else 0)
-
-
 @dataclass(frozen=True)
 class Signal:
     name: str
@@ -80,9 +66,10 @@ SIGNALS = [
     Signal("1m trend", "1 min EMA9 < EMA21", _trend("1m")),
     Signal("1s trend", "1 s EMA9 < EMA21", _trend("1s")),
     Signal("VWAP", "mid < VWAP", _vwap),
-    Signal("Bollinger", "1 min %B < 0", _bollinger),
-    Signal("Stoch RSI", "1 min %K < 20", _stoch),
-]
+]  # Bollinger and Stoch RSI left out for now: the founder doesn't expect them to work (D47)
+# The primary tests' corrected interval: Bonferroni keeps the chance of any false
+# "real" among them at 5 %, so each one is held to 5 % / their number.
+CORRECTED_LEVEL = 1 - 0.05 / len(SIGNALS)
 
 
 def flagged(side, reading):
@@ -113,7 +100,7 @@ class Result:
     diff: object           # flagged minus rest; None if either group is empty
     low: object            # 95 % interval of diff
     high: object
-    low_99: object = None  # 99 % (Bonferroni over the 5 primary tests), primary only
+    low_99: object = None  # Bonferroni-corrected interval (CORRECTED_LEVEL), primary only
     high_99: object = None
     verdict: str = ""
 
@@ -148,7 +135,7 @@ def _compare(signal, horizon, period, primary, missing, fl, rest, resamples, see
             rest[0], rest[1], fl[0], fl[1], resamples, seed)
         if primary:
             _, fields["low_99"], fields["high_99"] = bs.paired_diff_ci(
-                rest[0], rest[1], fl[0], fl[1], resamples, seed, level=0.99)
+                rest[0], rest[1], fl[0], fl[1], resamples, seed, level=CORRECTED_LEVEL)
     return Result(**fields, verdict=verdict(fields["diff"], fields["low"], fields["high"]))
 
 
@@ -188,13 +175,13 @@ def report(path, results, resamples):
     print("Flagged = we bought while the signal read low/falling, or sold while it read high/rising.")
     print(f"P&L per share (spread + adverse selection), cents; diff = flagged - rest, 95 % interval,"
           f" 5 min blocks, {resamples} resamples.")
-    print(f"{len(results)} tests, {primary} primary (10 s, whole day; also a 99 % interval,"
-          f" Bonferroni for {primary}). At 95 %, about 1 test in 20 looks real by chance.\n")
+    print(f"{len(results)} tests, {primary} primary (10 s, whole day; also a {CORRECTED_LEVEL:.1%}"
+          f" interval, Bonferroni for {primary}). At 95 %, about 1 test in 20 looks real by chance.\n")
     for s in SIGNALS:
         rs = [r for r in results if r.signal == s.name]
         print(f"{s.name}: a buy is flagged when {s.rule}; {rs[0].missing} fills without the indicator")
         print(f"  {'h':>4} {'period':<10}{'flagged':>9}{'flagged ¢':>11}{'rest ¢':>9}{'diff':>8}"
-              f"{'95 %':>18}{'99 %':>18}  verdict")
+              f"{'95 %':>18}{'corrected':>18}  verdict")
         for r in rs:
             ci = "-" if r.low is None else f"[{r.low:+.2f}, {r.high:+.2f}]"
             ci99 = "" if r.low_99 is None else f"[{r.low_99:+.2f}, {r.high_99:+.2f}]"
