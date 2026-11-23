@@ -48,7 +48,8 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Chart snapshot on every fill (1 s + 1 min indicators, VWAP) + 15 columns in the fills CSV | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/include/orderbook/sim/fills_csv.hpp`, `cpp/src/sim/fills_csv.cpp` | done (6c-2a), D45 |
 | Local research hub, phase 1: candles, EMA 9/21, VWAP, Bollinger, Stoch RSI, our fills colored by markout; exporter to JSON | `hub/web/`, `research/hub_export.py`, `research/test_hub_export.py` | done (6c-2b), D46 |
 | Hub: market structure (ZigZag, HH/HL labels, shading) on 1 s / 15 s / 1 min / 5 min, swing size c picked by eye; `export_hub.sh` | `hub/web/src/lib/structure.ts`, `hub/web/src/components/MarketChart.tsx`, `research/export_hub.sh`, `research/hub_export.py` | done (round 2, 2b), D50 |
-| Signal study: do chart readings (EMA trend 1m / 1s, VWAP) pick out the losing fills? (stage 1) | `research/signal_study.py`, `research/test_signal_study.py` | built (6c-2c-1), not yet run on the day, D47 |
+| Signal study: do chart readings (EMA trend 1m / 1s, VWAP) pick out the losing fills? (stage 1) | `research/signal_study.py`, `research/test_signal_study.py` | round 1 run (private log), D47 |
+| Signal study round 2: market structure A / B / C, c per timeframe | `research/signal_study.py --round 2`, `cpp/include/orderbook/sim/market_state.hpp` | built, not yet run, D51 |
 | ATR + market structure: ZigZag swings scaled by ATR, HH/HL score (round 2) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/include/orderbook/sim/structure.hpp`, `cpp/src/sim/structure.cpp` | done (6c-2a-1), D48 |
 | Structure in every chart (1 s, 15 s, 1 min, 5 min), on every fill, in the CSVs; `chart_dump --c --swings` | `cpp/include/orderbook/sim/chart_feed.hpp`, `cpp/src/sim/market_state.cpp`, `cpp/src/sim/fills_csv.cpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/tools/chart_dump.cpp`, `research/hub_export.py` | done (6c-2a-2), D49 |
 | Trend/range signal for the market maker | — | milestone 6 |
@@ -717,6 +718,23 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **When the shading turns:** a bar's color is the score known at its close, including a swing that bar confirmed. That is what a strategy deciding after that bar sees.
 - **The labels sit at the bar that made the swing:** the line and labels show where the highs and lows were. The shading shows when they were known, which is later. The gap between them is the confirmation delay.
 
+### D51. Swing size per timeframe, and round 2 of the signal study
+
+- **c picked by eye, with the fills hidden** (founder, 23 Nov 2026): **1.5 on 1 min** ("iyi duruyor") and **2 on 15 s** ("1.5 biraz noisy"). `MarketStateConfig::swing_c` holds one c per timeframe; 1 s and 5 min keep 2 and aren't tested. `chart_dump --c` still sets one value for all, for the hub's side-by-side views.
+- **Round 2 tests** (`signal_study.py --round 2`). 1 min is primary; 15 s supports it (the fractal question):
+
+  | test | flagged fills | the rest |
+  |---|---|---|
+  | **A**, 1 min structure | buys in a downtrend (−2), sells in an uptrend (+2) | everything else |
+  | **B**, A + EMA | the same, only when the 1 min EMA9/21 agree | everything else |
+  | **C**, 1 min regime | fills in a range (score not ±2), either side | fills in a trend |
+  | 15 s structure, 15 s range | as A and C on 15 s | supporting |
+
+  That is 5 signals × 2 horizons × 3 periods = 30 tests, 3 of them primary, with a Bonferroni interval for 3 (98.3 %).
+- **C is a different kind of test:** A and B ask whether being on the wrong side of a trend hurts. C asks whether market making itself does better in a range, whatever the side. It is the founder's strongest prior.
+- **What the eye sees vs what the score knows:** on the hub the founder reads 09:40-10:10 as a range, but the real-time score keeps switching between down and range there. The eye sees the finished box; the score only knows the past. Round 2 measures the real-time version, the only one a strategy can use.
+- **Regression:** the milestone 5 reports are identical, and so are the first 27 columns of every fills CSV; only `structure_1m` changed (c 2 → 1.5). Round 1's study reproduces to the digit.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -737,7 +755,7 @@ cmake --preset release && cmake --build --preset release
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --pull 0.2   # no quote on a side under 20% of the touch
 ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 --rebate 0.2   # add a 0.2 cent/share maker rebate
 ./build/release/cpp/imbalance_study data/itch/12302019.NASDAQ_ITCH50 AAPL   # does queue imbalance predict the mid?
-./build/release/cpp/chart_dump data/itch/12302019.NASDAQ_ITCH50 AAPL data/sim/chart/AAPL_chart.csv --swings data/sim/chart/AAPL_swings_c2.csv   # 1 s, 15 s, 1 min, 5 min bars, indicators, structure [--from 09:00] [--vwap-from 09:30] [--c 2]
+./build/release/cpp/chart_dump data/itch/12302019.NASDAQ_ITCH50 AAPL data/sim/chart/AAPL_chart.csv --swings data/sim/chart/AAPL_swings_c2.csv   # 1 s, 15 s, 1 min, 5 min bars, indicators, structure [--from 09:00] [--vwap-from 09:30] [--c 2: one c for all; default 1.5 on 1 min, 2 elsewhere]
 
 # research (Python, standard library only)
 research/.venv/bin/python -m unittest discover -s research
@@ -753,7 +771,7 @@ research/export_hub.sh data/itch/12302019.AAPL.ITCH50 2019-12-30 AAPL
 (cd hub/web && npm install && npm test && npm run dev)
 
 # signal study (D47): flagged fills vs the rest, per signal, 18 tests counted
-research/.venv/bin/python research/signal_study.py data/sim/m5/naive_0us.csv
+research/.venv/bin/python research/signal_study.py data/sim/m5/naive_0us.csv --round 2   # --round 1: EMA trend and VWAP
 
 # chart bars + indicators vs Databento's bars for the same day (D42; needs the two .dbn.zst files)
 research/.venv/bin/python research/check_chart.py data/sim/chart/AAPL_chart.csv data/databento/AAPL_20191230_XNAS_ohlcv-1m.dbn.zst data/databento/AAPL_20191230_XNAS_ohlcv-1s.dbn.zst

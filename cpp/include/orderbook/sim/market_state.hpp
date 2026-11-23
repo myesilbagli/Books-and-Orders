@@ -20,11 +20,21 @@
 
 namespace ob::sim {
 
+// The swing size c of each timeframe's structure (D48). Picked by eye on the hub with the
+// fills hidden (D51): 1.5 for 1 min, 2 for 15 s. The others keep 2 (not tested).
+struct SwingSizes {
+  double one_second = 2.0;
+  double fifteen_seconds = 2.0;
+  double one_minute = 1.5;
+  double five_minutes = 2.0;
+};
+
 struct MarketStateConfig {
   std::uint64_t from_ns = 9ULL * 3600 * 1'000'000'000;  // bars start (pre-market warm-up)
   std::uint64_t to_ns = 16ULL * 3600 * 1'000'000'000;   // and stop
   std::uint64_t vwap_from_ns = (9ULL * 3600 + 30 * 60) * 1'000'000'000;  // VWAP counts from
-  ChartSettings settings;  // the founder's chart by default
+  ChartSettings settings;  // the founder's chart by default (its structure.c is replaced:)
+  SwingSizes swing_c;      // c per timeframe
 };
 
 // The bars closed by one advance(), per timeframe, oldest first.

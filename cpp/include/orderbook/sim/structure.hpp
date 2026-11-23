@@ -86,6 +86,7 @@ class MarketStructure {
   [[nodiscard]] const std::vector<Swing>& swings() const { return zigzag_.swings(); }
   [[nodiscard]] std::optional<int> score() const { return zigzag_.score(); }
   [[nodiscard]] std::optional<double> atr() const { return atr_.value(); }  // ticks
+  [[nodiscard]] double c() const { return settings_.c; }
 
  private:
   StructureSettings settings_;

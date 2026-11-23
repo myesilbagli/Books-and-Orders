@@ -12,14 +12,20 @@ void append(std::vector<ChartPoint>& to, const std::vector<ChartPoint>& from) {
   to.insert(to.end(), from.begin(), from.end());
 }
 
+// The shared chart settings with one timeframe's own swing size.
+ChartSettings with_c(ChartSettings settings, double c) {
+  settings.structure.c = c;  // settings is a copy: the caller's stays as it was
+  return settings;
+}
+
 }  // namespace
 
 MarketState::MarketState(const MarketStateConfig& config)
     : config_(config),
-      one_second_(kSecond, config.settings),
-      fifteen_seconds_(15 * kSecond, config.settings),
-      one_minute_(60 * kSecond, config.settings),
-      five_minutes_(300 * kSecond, config.settings),
+      one_second_(kSecond, with_c(config.settings, config.swing_c.one_second)),
+      fifteen_seconds_(15 * kSecond, with_c(config.settings, config.swing_c.fifteen_seconds)),
+      one_minute_(60 * kSecond, with_c(config.settings, config.swing_c.one_minute)),
+      five_minutes_(300 * kSecond, with_c(config.settings, config.swing_c.five_minutes)),
       vwap_(config.vwap_from_ns) {}
 
 void MarketState::start_if_due(std::uint64_t t_ns) {

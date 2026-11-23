@@ -96,5 +96,18 @@ TEST(MarketStateTest, FifteenSecondAndFiveMinuteBars) {
   ASSERT_TRUE(m.five_minutes().latest());
 }
 
+// Each timeframe has its own swing size: the founder picked 1.5 for 1 min and 2 for 15 s
+// by eye on the hub (D51); a config can set any of them.
+TEST(MarketStateTest, SwingSizePerTimeframe) {
+  const MarketState defaults{};
+  EXPECT_DOUBLE_EQ(defaults.one_minute().structure().c(), 1.5);
+  EXPECT_DOUBLE_EQ(defaults.fifteen_seconds().structure().c(), 2.0);
+  EXPECT_DOUBLE_EQ(defaults.one_second().structure().c(), 2.0);
+  EXPECT_DOUBLE_EQ(defaults.five_minutes().structure().c(), 2.0);
+  MarketStateConfig c = config();
+  c.swing_c.one_minute = 3.0;
+  EXPECT_DOUBLE_EQ(MarketState(c).one_minute().structure().c(), 3.0);
+}
+
 }  // namespace
 }  // namespace ob::sim

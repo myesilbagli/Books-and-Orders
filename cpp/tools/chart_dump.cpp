@@ -7,7 +7,8 @@
 //
 // --from: when bars start (pre-market warms the indicators up before the open).
 // --vwap-from: when VWAP starts counting trades (09:30 = regular session).
-// --c: a swing is a pullback of c x ATR (D48).
+// --c: a swing is a pullback of c x ATR, on every timeframe (D48); without it, each
+//      timeframe's own (1.5 for 1 min, 2 for the others; D51).
 // --swings: also write every confirmed swing, per timeframe.
 // Bars stop at 16:00 ET.
 
@@ -117,7 +118,7 @@ int main(int argc, char** argv) {
   const std::string symbol = argv[2];
   std::uint64_t from = 9 * kHour;
   std::uint64_t vwap_from = 9 * kHour + 30 * kMinute;
-  ob::sim::ChartSettings settings;
+  ob::sim::SwingSizes swing_c;  // the founder's picks unless --c sets one for all (D51)
   std::string swings_path;
   for (int i = 4; i < argc; i += 2) {
     const std::string flag = argv[i];
@@ -129,7 +130,8 @@ int main(int argc, char** argv) {
     } else if (flag == "--vwap-from" && t) {
       vwap_from = *t;
     } else if (flag == "--c" && c) {
-      settings.structure.c = *c;
+      swing_c = ob::sim::SwingSizes{.one_second = *c, .fifteen_seconds = *c,
+                                    .one_minute = *c, .five_minutes = *c};
     } else if (flag == "--swings" && !value.empty()) {
       swings_path = value;
     } else {
@@ -158,7 +160,7 @@ int main(int argc, char** argv) {
 
   // The same class the simulator shows its strategies (D44), so the CSV is what they see.
   ob::sim::MarketState market(ob::sim::MarketStateConfig{
-      .from_ns = from, .to_ns = end, .vwap_from_ns = vwap_from, .settings = settings});
+      .from_ns = from, .to_ns = end, .vwap_from_ns = vwap_from, .swing_c = swing_c});
   ob::Replayer replay;
   ob::itch::ItchReader reader(file.data(), file.size());
   ob::itch::RawMessage m{};

@@ -12,7 +12,8 @@ BLOCK = 5 * 60 * SECOND
 HEADER = ("timestamp_ns,side,price,quantity,mid_x2_before,mid_x2_1s,mid_x2_10s,mid_x2_60s,"
           "touch_share,shares_left,"
           "ema_fast_1s,ema_slow_1s,sma_1s,bb_pct_1s,rsi_1s,stoch_k_1s,stoch_d_1s,"
-          "ema_fast_1m,ema_slow_1m,sma_1m,bb_pct_1m,rsi_1m,stoch_k_1m,stoch_d_1m,vwap\n")
+          "ema_fast_1m,ema_slow_1m,sma_1m,bb_pct_1m,rsi_1m,stoch_k_1m,stoch_d_1m,vwap,"
+          "structure_1s,structure_15s,structure_1m,structure_5m\n")
 
 
 def ind(**values):
@@ -70,12 +71,14 @@ class ReadRows(unittest.TestCase):
             path = os.path.join(d, "fills.csv")
             with open(path, "w") as f:
                 f.write(HEADER + f"{SECOND},B,10000,100,20010,20000,20020,19980,0.8,340,"
-                        "10004.12,,,,,,,,,,,,,,10002.25\n")
+                        "10004.12,,,,,,,,,,,,,,10002.25,,,-2,\n")
             rows = ss.read_rows(path)
         self.assertEqual(rows[0].fill.mid_x2_10s, 20020)
         self.assertEqual(rows[0].indicators["ema_fast_1s"], 10004.12)
         self.assertIsNone(rows[0].indicators["ema_slow_1s"])
         self.assertEqual(rows[0].indicators["vwap"], 10002.25)
+        self.assertEqual(rows[0].indicators["structure_1m"], -2)
+        self.assertIsNone(rows[0].indicators["structure_15s"])
 
 
 def day_of_fills():
@@ -135,6 +138,80 @@ class Study(unittest.TestCase):
     def test_noise_when_the_interval_holds_zero(self):
         self.assertEqual(ss.verdict(-0.5, -1.0, 0.2), "noise")
         self.assertEqual(ss.verdict(0.5, 0.1, 0.9), "flagged better")
+
+
+
+class Round2Readings(unittest.TestCase):
+    # Structure reads -1 only in a downtrend (-2) and +1 only in an uptrend (+2): a mixed
+    # score is a range, not a weak trend.
+    def test_structure_reading(self):
+        read = ss.structure_reading("1m")
+        self.assertEqual(read(ind(structure_1m=-2), 0), -1)
+        self.assertEqual(read(ind(structure_1m=2), 0), 1)
+        self.assertEqual(read(ind(structure_1m=0), 0), 0)
+        self.assertEqual(read(ind(structure_1m=1), 0), 0)
+        self.assertIsNone(read(ind(), 0))  # before two highs and two lows
+
+    # B: a trend only when the 1 min EMAs agree with the structure (the EMAs as support).
+    def test_structure_with_ema_needs_both(self):
+        read = ss.structure_ema_reading
+        self.assertEqual(read(ind(structure_1m=-2, ema_fast_1m=99.0, ema_slow_1m=100.0), 0), -1)
+        self.assertEqual(read(ind(structure_1m=-2, ema_fast_1m=101.0, ema_slow_1m=100.0), 0), 0)
+        self.assertEqual(read(ind(structure_1m=2, ema_fast_1m=101.0, ema_slow_1m=100.0), 0), 1)
+        self.assertIsNone(read(ind(structure_1m=-2), 0))  # EMAs still warming up
+
+    # C groups the fills by regime, whatever their side.
+    def test_in_range(self):
+        in_range = ss.in_range("1m")
+        self.assertTrue(in_range(ind(structure_1m=0)))
+        self.assertTrue(in_range(ind(structure_1m=-1)))
+        self.assertFalse(in_range(ind(structure_1m=-2)))
+        self.assertIsNone(in_range(ind()))
+
+    def test_round_two_signals(self):
+        self.assertEqual([(s.name, s.primary) for s in ss.ROUNDS[2]],
+                         [("1m structure", True), ("1m structure + EMA", True), ("1m range", True),
+                          ("15s structure", False), ("15s range", False)])
+
+
+class Round2Study(unittest.TestCase):
+    """Every block: a buy in a 1 min range that makes 1 cent, and a buy in a 1 min
+    downtrend (against it) that loses 2. No EMAs, no 15 s structure."""
+
+    @classmethod
+    def setUpClass(cls):
+        rows = []
+        for b in range(78):
+            t = bs.START_NS + b * BLOCK + SECOND
+            rows.append(row(t, "B", 1.0, structure_1m=0))
+            rows.append(row(t + SECOND, "B", -2.0, structure_1m=-2))
+        cls.results = ss.study(rows, resamples=200, seed=0, signals=ss.ROUNDS[2])
+
+    def find(self, signal):
+        return next(r for r in self.results
+                    if (r.signal, r.horizon, r.period) == (signal, 10, "whole day"))
+
+    # 5 signals x 2 horizons x 3 periods; 3 primary, each held to 5 % / 3.
+    def test_counts(self):
+        self.assertEqual(len(self.results), 30)
+        self.assertEqual(sum(r.primary for r in self.results), 3)
+        self.assertAlmostEqual(ss.corrected_level(ss.ROUNDS[2]), 1 - 0.05 / 3)
+
+    # A: the downtrend buys (-2) against the range buys (+1).
+    def test_against_the_structure(self):
+        self.assertAlmostEqual(self.find("1m structure").diff, -3.0)
+
+    # C: range fills (+1) minus trend fills (-2): +3, range better.
+    def test_range_against_trend(self):
+        r = self.find("1m range")
+        self.assertAlmostEqual(r.diff, 3.0)
+        self.assertEqual(r.verdict, "flagged better")
+
+    # B needs the EMAs, and 15 s needs its structure: none here, so nothing to compare.
+    def test_missing_inputs_are_counted(self):
+        self.assertEqual(self.find("1m structure + EMA").missing, 156)
+        self.assertEqual(self.find("15s range").verdict, "no data")
+        self.assertFalse(self.find("15s range").primary)
 
 
 if __name__ == "__main__":
