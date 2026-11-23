@@ -99,6 +99,24 @@ class StochRsi {
   Sma d_;
 };
 
+// Average true range (TradingView's ta.atr): how far a bar typically moves, gaps included.
+// True range = max(high - low, |high - previous close|, |low - previous close|); the
+// first bar has no previous close, so just high - low. Averaged with Wilder's smoothing,
+// seeded with the plain average of the first n, as in RSI. Market structure scales its
+// swings with it (D48).
+class Atr {
+ public:
+  explicit Atr(std::size_t n);
+  void update(double high, double low, double close);
+  [[nodiscard]] std::optional<double> value() const;
+
+ private:
+  std::size_t n_;
+  std::optional<double> previous_close_;
+  std::size_t ranges_ = 0;  // true ranges seen, up to n (warm-up)
+  double atr_ = 0.0;
+};
+
 // Volume-weighted average price of the trades from start_ns on (09:30 for the regular
 // session; earlier to include pre-market). Updated on every trade, not per bar.
 class Vwap {

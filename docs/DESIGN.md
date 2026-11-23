@@ -48,6 +48,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Chart snapshot on every fill (1 s + 1 min indicators, VWAP) + 15 columns in the fills CSV | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/include/orderbook/sim/fills_csv.hpp`, `cpp/src/sim/fills_csv.cpp` | done (6c-2a), D45 |
 | Local research hub, phase 1: candles, EMA 9/21, VWAP, Bollinger, Stoch RSI, our fills colored by markout; exporter to JSON | `hub/web/`, `research/hub_export.py`, `research/test_hub_export.py` | done (6c-2b), D46 |
 | Signal study: do chart readings (EMA trend 1m / 1s, VWAP) pick out the losing fills? (stage 1) | `research/signal_study.py`, `research/test_signal_study.py` | built (6c-2c-1), not yet run on the day, D47 |
+| ATR + market structure: ZigZag swings scaled by ATR, HH/HL score (round 2) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/include/orderbook/sim/structure.hpp`, `cpp/src/sim/structure.cpp` | done (6c-2a-1), not yet in `MarketState`, D48 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -662,6 +663,20 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Readings, not conclusions:** −1 means "low" whether it reads as trend (bad for a buy) or mean reversion (good). Which way the founder expects each signal to go is written in the private trial log **before** the study runs on the day. The script only measures.
 - **An upper bound:** "without the flagged fills" ignores that stepping away changes our queue position and the fills we'd get instead. A C++ trial (stage 2) answers that.
 - **Fills without the indicator** (warming up, VWAP before 09:30) are left out of that signal's test and counted.
+
+### D48. Market structure: ZigZag swings scaled by ATR, and a HH/HL score
+
+- **Why:** round 1 showed the EMA order can't tell a trend from a range: it calls every moment either up or down (D47). The founder reads trend from structure (higher highs and higher lows), with the EMAs as support. This turns that read into code, as he described it.
+- **Swing = a meaningful pullback (ZigZag):** a high is confirmed once a later bar's low is at least delta below it; a low, once a later high is delta above it. It runs on closed bars' highs and lows, so a 1 min structure is what the 1 min chart shows.
+- **Delta = c × ATR(14) of the same bars.** A fixed size would make the open's noise look like swings and hide the afternoon's real ones. ATR follows the market, and the same rule on 15 s, 1 min and 5 min bars gives each chart its own structure: the founder's fractal hypothesis, as code. ATR is TradingView's (Wilder, gaps included), so it can be checked on a chart.
+- **Score = sign(high₂ − high₁) + sign(low₂ − low₁):** +2 up, −2 down, anything else a range. It changes only when a swing is confirmed. So an uptrend ends at the first lower high (score 0), and a downtrend needs a lower low after it (−2). Dipping under the last low isn't enough. This is the founder's call: "yeni LH/LL oluşması daha sağlıklı".
+- **No look-ahead:** a swing is known only at the end of the bar that confirmed it (`confirmed_ns`), always later than the bar that made it.
+- **Two ambiguities, resolved conservatively:**
+  - A bar that makes a new extreme can't also confirm it: inside one bar the order of high and low is unknown.
+  - Before the first swing, one bar that holds both extremes waits for a later bar.
+- **During the ATR warm-up** the extremes are followed, but nothing is confirmed.
+- **Choosing c:** chosen by eye on the hub, from a few precomputed values, with the fills hidden. Picking it from the results would be a test per value.
+- **Next (6c-2a-2):** 15 s and 5 min bars in `MarketState`, a structure per timeframe, and the score on every fill.
 
 ## Build
 

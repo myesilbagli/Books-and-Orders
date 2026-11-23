@@ -191,4 +191,30 @@ std::optional<double> Vwap::value() const {
   return static_cast<double>(notional_) / static_cast<double>(volume_);
 }
 
+Atr::Atr(std::size_t n) : n_(n) {}
+
+void Atr::update(double high, double low, double close) {
+  // A gap counts as movement: a bar from 14 to 15 after a close at 10 moved 5, not 1.
+  double range = high - low;
+  if (previous_close_) {
+    range = std::max(range, std::max(std::abs(high - *previous_close_),
+                                      std::abs(low - *previous_close_)));
+  }
+  previous_close_ = close;
+  const double n = static_cast<double>(n_);
+  if (ranges_ < n_) {
+    atr_ += range / n;  // warm-up: the plain average of the first n
+    ++ranges_;
+    return;
+  }
+  atr_ = (atr_ * (n - 1.0) + range) / n;  // Wilder's smoothing, as in RSI
+}
+
+std::optional<double> Atr::value() const {
+  if (n_ == 0 || ranges_ < n_) {
+    return std::nullopt;
+  }
+  return atr_;
+}
+
 }  // namespace ob::sim

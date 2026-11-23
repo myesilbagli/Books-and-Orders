@@ -171,5 +171,31 @@ TEST(VwapTest, VolumeWeightedFromTheStart) {
   EXPECT_DOUBLE_EQ(*vwap.value(), (10'000.0 * 100 + 10'010.0 * 300) / 400);
 }
 
+// --- ATR ----------------------------------------------------------------------------
+
+// Every bar 2 ticks tall and no gaps: the true range is 2 each time, so ATR(3) is 2 once
+// three bars are in, and nothing before.
+TEST(AtrTest, AveragesTheTrueRangeAfterNBars) {
+  Atr atr(3);
+  atr.update(10, 8, 9);
+  atr.update(11, 9, 10);
+  EXPECT_FALSE(atr.value());
+  atr.update(12, 10, 11);
+  ASSERT_TRUE(atr.value());
+  EXPECT_DOUBLE_EQ(*atr.value(), 2.0);
+}
+
+// A gap counts: after a close at 10, a bar from 14 to 15 moved 5 from that close, not 1.
+// The first value is the plain average (1 + 5) / 2 = 3; then Wilder's smoothing, as in
+// RSI: (3 x 1 + 1) / 2 = 2 for a 1-tick bar with no gap.
+TEST(AtrTest, TrueRangeIncludesTheGapFromThePreviousClose) {
+  Atr atr(2);
+  atr.update(10, 9, 10);  // first bar: no previous close, so just high - low = 1
+  atr.update(15, 14, 15);
+  EXPECT_DOUBLE_EQ(*atr.value(), 3.0);
+  atr.update(15, 14, 14.5);
+  EXPECT_DOUBLE_EQ(*atr.value(), 2.0);
+}
+
 }  // namespace
 }  // namespace ob::sim
