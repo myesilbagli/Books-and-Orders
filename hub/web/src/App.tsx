@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import MarketChart from './components/MarketChart';
 import { groupFills, summarize } from './lib/fills';
-import { loadChart, loadFills, loadIndex } from './lib/data';
-import type { Bar, Fill, Horizon, Index } from './lib/types';
+import { loadChart, loadFills, loadIndex, loadStructure } from './lib/data';
+import type { Bar, Fill, Horizon, Index, Structure, Timeframe } from './lib/types';
 
-type Timeframe = '1s' | '1m';
-const INTERVAL: Record<Timeframe, number> = { '1s': 1, '1m': 60 };
+const INTERVAL: Record<Timeframe, number> = { '1s': 1, '15s': 15, '1m': 60, '5m': 300 };
 
 export default function App() {
   const [index, setIndex] = useState<Index | null>(null);
@@ -13,7 +12,11 @@ export default function App() {
   const [run, setRun] = useState('');
   const [timeframe, setTimeframe] = useState<Timeframe>('1m');
   const [horizon, setHorizon] = useState<Horizon>('10s');
-  const [showFills, setShowFills] = useState(true);
+  // Off at first: the swing size c is chosen by eye with the outcomes hidden (D48).
+  const [showFills, setShowFills] = useState(false);
+  const [showStructure, setShowStructure] = useState(true);
+  const [c, setC] = useState('2');
+  const [structure, setStructure] = useState<Structure | null>(null);
   const [showBands, setShowBands] = useState(false);
   const [bars, setBars] = useState<Bar[]>([]);
   const [fills, setFills] = useState<Fill[]>([]);
@@ -54,6 +57,20 @@ export default function App() {
     };
   }, [dayId, run]);
 
+  useEffect(() => {
+    if (!dayId || !showStructure) {
+      setStructure(null);
+      return;
+    }
+    let current = true;
+    loadStructure(dayId, timeframe, c)
+      .then((s) => current && setStructure(s))
+      .catch((e: Error) => setError(e.message));
+    return () => {
+      current = false;
+    };
+  }, [dayId, timeframe, c, showStructure]);
+
   // Recomputed only when its inputs change, not on every mouse move over the chart.
   const groups = useMemo(() => groupFills(fills, INTERVAL[timeframe], horizon), [fills, timeframe, horizon]);
   const summary = useMemo(() => summarize(fills, horizon), [fills, horizon]);
@@ -81,7 +98,7 @@ export default function App() {
             ))}
           </select>
         </label>
-        <Toggle options={['1s', '1m']} value={timeframe} onChange={setTimeframe} />
+        <Toggle options={['1s', '15s', '1m', '5m']} value={timeframe} onChange={setTimeframe} />
         <label>
           Markout
           <Toggle options={['1s', '10s', '60s']} value={horizon} onChange={setHorizon} />
@@ -92,6 +109,16 @@ export default function App() {
         <label className="check">
           <input type="checkbox" checked={showBands} onChange={(e) => setShowBands(e.target.checked)} /> Bollinger
         </label>
+        <label className="check">
+          <input type="checkbox" checked={showStructure} onChange={(e) => setShowStructure(e.target.checked)} />{' '}
+          Structure
+        </label>
+        {showStructure && (day?.structure_c?.length ?? 0) > 0 && (
+          <label>
+            swing = c × ATR, c
+            <Toggle options={day?.structure_c ?? []} value={c} onChange={setC} />
+          </label>
+        )}
         <span className="summary">
           {summary.fills.toLocaleString()} fills · {summary.shares.toLocaleString()} shares ·{' '}
           {summary.markout === null ? '–' : `${summary.markout.toFixed(2)} ¢/share`} at {horizon}
@@ -104,6 +131,7 @@ export default function App() {
         timeframe={timeframe}
         horizon={horizon}
         showBands={showBands}
+        structure={showStructure ? structure : null}
       />
     </div>
   );

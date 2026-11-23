@@ -90,6 +90,38 @@ class ReadFills(unittest.TestCase):
         self.assertAlmostEqual(f["markout_10s"], 0.0)  # mid back at our price
 
 
+SWINGS_HEADER = "timeframe,kind,price,time_et,confirmed_et,change\n"
+
+
+class ReadSwings(unittest.TestCase):
+    # Each swing gets the label a chart reader would write next to it.
+    def test_labels_and_times(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = write(d, "swings.csv", SWINGS_HEADER +
+                         "1m,L,287.0000,09:40:00,09:42:00,\n"
+                         "1m,H,287.5000,09:43:00,09:45:00,\n"
+                         "1m,L,287.2000,09:46:00,09:47:00,1\n"
+                         "1m,H,287.4000,09:48:00,09:50:00,-1\n"
+                         "15s,L,287.1000,09:40:15,09:40:45,0\n")
+            swings = hx.read_swings(path, MIDNIGHT)
+        labels = [s["label"] for s in swings["1m"]]
+        self.assertEqual(labels, ["L", "H", "HL", "LH"])
+        self.assertEqual(swings["15s"][0]["label"], "EL")  # equal to the last low
+        first = swings["1m"][0]
+        self.assertEqual(first["time"], MIDNIGHT + 9 * 3600 + 40 * 60)       # made
+        self.assertEqual(first["confirmed"], MIDNIGHT + 9 * 3600 + 42 * 60)  # known
+        self.assertEqual((first["price"], first["kind"]), (287.0, "L"))
+
+
+class ScoreChanges(unittest.TestCase):
+    # Only the bars where the score changes: the hub fills in the bars between.
+    def test_keeps_only_changes(self):
+        bars = [{"time": t, "structure": s} for t, s in
+                [(1, None), (2, None), (3, 2), (4, 2), (5, 0), (6, 0), (7, -2)]]
+        self.assertEqual(hx.score_changes(bars), [{"time": 3, "score": 2}, {"time": 5, "score": 0},
+                                                  {"time": 7, "score": -2}])
+
+
 class Export(unittest.TestCase):
     # One folder per day, and an index that lists every day and its runs; a second export
     # of another run adds to the index instead of replacing it.
@@ -109,7 +141,25 @@ class Export(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(day, "chart_5m.json")))
             self.assertTrue(os.path.exists(os.path.join(day, "fills_naive_0us.json")))
         self.assertEqual(index, {"days": [{"id": "2019-12-30_AAPL", "date": "2019-12-30",
-                                           "symbol": "AAPL", "runs": ["as10_0us", "naive_0us"]}]})
+                                           "symbol": "AAPL", "runs": ["as10_0us", "naive_0us"],
+                                           "structure_c": []}]})
+
+    # One structure file per timeframe and c: the swings and where the score changed.
+    def test_writes_the_structure_for_each_c(self):
+        with tempfile.TemporaryDirectory() as d:
+            chart = write(d, "chart.csv", CHART_HEADER +
+                          "1m,09:30:00,287.0000,287.0100,286.9900,287.0050,300,,,,,,,,,,,0.1000,\n"
+                          "1m,09:31:00,287.0000,287.0100,286.9900,287.0050,300,,,,,,,,,,,0.1000,2\n")
+            swings = write(d, "swings.csv", SWINGS_HEADER + "1m,L,287.0000,09:30:00,09:31:00,\n")
+            out = os.path.join(d, "hub")
+            hx.export("2019-12-30", "AAPL", chart, {}, out, structures={"1.5": (chart, swings)})
+            with open(os.path.join(out, "2019-12-30_AAPL", "structure_1m_c1.5.json")) as f:
+                structure = json.load(f)
+            with open(os.path.join(out, "index.json")) as f:
+                index = json.load(f)
+        self.assertEqual(structure["scores"], [{"time": MIDNIGHT + 9 * 3600 + 31 * 60, "score": 2}])
+        self.assertEqual(len(structure["swings"]), 1)
+        self.assertEqual(index["days"][0]["structure_c"], ["1.5"])
 
 
 if __name__ == "__main__":

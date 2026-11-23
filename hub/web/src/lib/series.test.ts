@@ -6,7 +6,7 @@ function bar(time: number, close: number, ema: number | null): Bar {
   return {
     time, open: close, high: close, low: close, close, volume: 0,
     vwap: null, ema_fast: ema, ema_slow: null, sma: null, bb_upper: null, bb_lower: null,
-    bb_pct: null, rsi: null, stoch_k: null, stoch_d: null,
+    bb_pct: null, rsi: null, stoch_k: null, stoch_d: null, atr: null, structure: null,
   };
 }
 

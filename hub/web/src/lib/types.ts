@@ -19,6 +19,8 @@ export interface Bar {
   rsi: number | null;
   stoch_k: number | null;
   stoch_d: number | null;
+  atr: number | null; // dollars
+  structure: number | null; // at c = 2; the hub uses the chosen c's file instead
 }
 
 export type Horizon = '1s' | '10s' | '60s';
@@ -40,6 +42,23 @@ export interface Day {
   date: string;
   symbol: string;
   runs: string[];
+  structure_c?: string[]; // swing sizes exported, e.g. ["1", "1.5", "2", "3"]
+}
+
+export type Timeframe = '1s' | '15s' | '1m' | '5m';
+
+// Market structure for one timeframe and one swing size c (D48, D49).
+export interface Swing {
+  time: number; // the bar that made the high or low
+  confirmed: number; // when it was known: the end of the bar that confirmed it
+  price: number; // dollars
+  kind: 'H' | 'L';
+  label: string; // HH, HL, LH, LL; H or L for the first; EH, EL for an equal one
+}
+
+export interface Structure {
+  swings: Swing[];
+  scores: { time: number; score: number }[]; // only where the score changed
 }
 
 export interface Index {

@@ -1,6 +1,7 @@
 import {
   CandlestickSeries,
   createChart,
+  HistogramSeries,
   createSeriesMarkers,
   LineSeries,
   LineStyle,
@@ -14,21 +15,25 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fillsInBar, toMarkers, type FillGroup } from '../lib/fills';
 import { candles, line } from '../lib/series';
-import type { Bar, Horizon } from '../lib/types';
+import { background, scoresAtBars, swingMarkers, zigzag } from '../lib/structure';
+import type { Bar, Horizon, Structure, Timeframe } from '../lib/types';
 import Legend from './Legend';
 
 interface Props {
   bars: Bar[];
   groups: FillGroup[];
-  timeframe: '1s' | '1m';
+  timeframe: Timeframe;
   horizon: Horizon;
   showBands: boolean;
+  structure: Structure | null; // null: not shown
 }
 
 // Everything the chart draws. Kept in a ref, not in state: the chart library owns these
 // objects, and changing them must not re-render React.
 interface Handles {
   chart: IChartApi;
+  shade: ISeriesApi<'Histogram'>;
+  zigzag: ISeriesApi<'Line'>;
   candles: ISeriesApi<'Candlestick'>;
   emaFast: ISeriesApi<'Line'>;
   emaSlow: ISeriesApi<'Line'>;
@@ -60,6 +65,12 @@ export default function MarketChart(props: Props) {
       grid: { vertLines: { color: '#f3f4f6' }, horzLines: { color: '#f3f4f6' } },
       timeScale: { timeVisible: true, secondsVisible: true },
     });
+    // Added first, so it is drawn behind everything: the structure shading, on its own
+    // hidden 0-1 scale that fills the pane's full height.
+    const shade = chart.addSeries(HistogramSeries, {
+      priceScaleId: 'shade', priceLineVisible: false, lastValueVisible: false,
+    });
+    chart.priceScale('shade').applyOptions({ visible: false, scaleMargins: { top: 0, bottom: 0 } });
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#16a34a', downColor: '#dc2626', borderVisible: false,
       wickUpColor: '#16a34a', wickDownColor: '#dc2626',
@@ -67,6 +78,8 @@ export default function MarketChart(props: Props) {
     });
     const h: Handles = {
       chart,
+      shade,
+      zigzag: chart.addSeries(LineSeries, { ...thin, color: '#111827', lineWidth: 2 }),
       candles: candleSeries,
       emaFast: chart.addSeries(LineSeries, { ...thin, color: '#f59e0b', lineWidth: 2 }),
       emaSlow: chart.addSeries(LineSeries, { ...thin, color: '#3b82f6', lineWidth: 2 }),
@@ -111,20 +124,41 @@ export default function MarketChart(props: Props) {
     h.bbLower.setData(line(props.bars, 'bb_lower'));
     h.stochK.setData(line(props.bars, 'stoch_k'));
     h.stochD.setData(line(props.bars, 'stoch_d'));
-    h.chart.applyOptions({ timeScale: { secondsVisible: props.timeframe === '1s' } });
-    if (props.timeframe === '1s') {
-      // 25 K one-second bars don't fit on a screen: open on the first 10 minutes of quoting.
+    const seconds = props.timeframe === '1s' || props.timeframe === '15s';
+    h.chart.applyOptions({ timeScale: { secondsVisible: seconds } });
+    if (seconds) {
+      // Too many bars for one screen: open on the start of quoting, 10 minutes of 1 s bars
+      // or an hour of 15 s bars.
       const midnight = Math.floor(props.bars[0].time / 86_400) * 86_400;
       const from = midnight + 9 * 3600 + 31 * 60;
-      h.chart.timeScale().setVisibleRange({ from: from as UTCTimestamp, to: (from + 600) as UTCTimestamp });
+      const span = props.timeframe === '1s' ? 600 : 3600;
+      h.chart.timeScale().setVisibleRange({ from: from as UTCTimestamp, to: (from + span) as UTCTimestamp });
     } else {
       h.chart.timeScale().fitContent();
     }
   }, [props.bars, props.timeframe]);
 
+  // Structure: shading and ZigZag line, redrawn when the bars or the structure change.
   useEffect(() => {
-    handles.current?.markers.setMarkers(toMarkers(props.groups));
-  }, [props.groups]);
+    const h = handles.current;
+    if (!h) return;
+    h.shade.setData(props.structure ? background(props.bars, props.structure.scores) : []);
+    h.zigzag.setData(props.structure ? zigzag(props.structure.swings) : []);
+  }, [props.bars, props.structure]);
+
+  // One marker list for the candles: fills and swing labels, in time order.
+  useEffect(() => {
+    const swings = props.structure ? swingMarkers(props.structure.swings) : [];
+    const all = [...toMarkers(props.groups), ...swings].sort((a, b) => a.time - b.time);
+    handles.current?.markers.setMarkers(all);
+  }, [props.groups, props.structure]);
+
+  // The score at each bar, for the legend; undefined while structure is off.
+  const scoreByTime = useMemo(() => {
+    if (!props.structure) return null;
+    const at = scoresAtBars(props.bars, props.structure.scores);
+    return new Map(props.bars.map((b, i) => [b.time, at[i]]));
+  }, [props.bars, props.structure]);
 
   useEffect(() => {
     const h = handles.current;
@@ -136,7 +170,12 @@ export default function MarketChart(props: Props) {
   const groups = hovered === null ? [] : fillsInBar(props.groups, hovered);
   return (
     <div className="chart-area">
-      <Legend bar={bar} groups={groups} horizon={props.horizon} />
+      <Legend
+        bar={bar}
+        groups={groups}
+        horizon={props.horizon}
+        score={scoreByTime && hovered !== null ? (scoreByTime.get(hovered) ?? null) : undefined}
+      />
       <div ref={container} className="chart" />
     </div>
   );

@@ -17,3 +17,4 @@ select { font: inherit; padding: 3px 6px; }
 .ema-slow { color: #2563eb; }
 .vwap { color: #9333ea; }
 .chart { flex: 1; min-height: 0; background: #fff; border: 1px solid #e5e7eb; }
+.structure { font-weight: 600; }

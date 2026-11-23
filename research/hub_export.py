@@ -55,6 +55,36 @@ def read_chart(path, midnight):
     return chart
 
 
+LABELS = {("H", 1): "HH", ("H", -1): "LH", ("H", 0): "EH", ("H", None): "H",
+          ("L", 1): "HL", ("L", -1): "LL", ("L", 0): "EL", ("L", None): "L"}
+
+
+def read_swings(path, midnight):
+    """chart_dump --swings (D49) as {timeframe: [swing, ...]}, each with its chart label
+    (HH, HL, LH, LL; H or L for the first of its kind; EH, EL for an equal one)."""
+    swings = {}
+    with open(path, newline="") as f:
+        for r in csv.DictReader(f):
+            change = int(r["change"]) if r["change"] != "" else None
+            swings.setdefault(r["timeframe"], []).append({
+                "time": chart_time(midnight, r["time_et"]),          # the bar that made it
+                "confirmed": chart_time(midnight, r["confirmed_et"]),  # when it was known
+                "price": float(r["price"]), "kind": r["kind"],
+                "label": LABELS[(r["kind"], change)]})
+    return swings
+
+
+def score_changes(bars):
+    """The bars where the structure score changed, oldest first; the hub carries each one
+    forward. Small: a few hundred points instead of 25 K bars per c."""
+    changes, last = [], None
+    for b in bars:
+        if b["structure"] is not None and b["structure"] != last:
+            changes.append({"time": b["time"], "score": b["structure"]})
+            last = b["structure"]
+    return changes
+
+
 def read_fills(path, midnight):
     """Our fills (D37, D45) with markouts in cents a share at 1, 10 and 60 s."""
     rows = []
@@ -80,8 +110,10 @@ def _write_json(path, value):
         json.dump(value, f, separators=(",", ":"))  # compact: the 1 s chart is 25 K bars
 
 
-def export(day, symbol, chart_csv, runs, out_dir):
-    """runs: {name: fills_csv}. Adds to what's already in out_dir."""
+def export(day, symbol, chart_csv, runs, out_dir, structures=None):
+    """runs: {name: fills_csv}. structures: {c: (chart_csv, swings_csv)}, one chart_dump
+    run per swing size c (D48). Adds to what's already in out_dir."""
+    structures = structures or {}
     midnight = day_start(day)
     day_id = f"{day}_{symbol}"
     folder = os.path.join(out_dir, day_id)
@@ -91,6 +123,11 @@ def export(day, symbol, chart_csv, runs, out_dir):
         _write_json(os.path.join(folder, f"chart_{timeframe}.json"), bars)
     for name, path in runs.items():
         _write_json(os.path.join(folder, f"fills_{name}.json"), read_fills(path, midnight))
+    for c, (c_chart, c_swings) in structures.items():
+        swings = read_swings(c_swings, midnight)
+        for timeframe, bars in read_chart(c_chart, midnight).items():
+            _write_json(os.path.join(folder, f"structure_{timeframe}_c{c}.json"),
+                        {"swings": swings.get(timeframe, []), "scores": score_changes(bars)})
 
     index_path = os.path.join(out_dir, "index.json")
     index = {"days": []}
@@ -100,6 +137,7 @@ def export(day, symbol, chart_csv, runs, out_dir):
     days = {d["id"]: d for d in index["days"]}
     entry = days.setdefault(day_id, {"id": day_id, "date": day, "symbol": symbol, "runs": []})
     entry["runs"] = sorted(set(entry["runs"]) | set(runs))
+    entry["structure_c"] = sorted(set(entry.get("structure_c", [])) | set(structures), key=float)
     index["days"] = sorted(days.values(), key=lambda d: d["id"])
     _write_json(index_path, index)
 
@@ -110,10 +148,16 @@ def main():
     p.add_argument("symbol")
     p.add_argument("chart_csv", help="chart_dump's output")
     p.add_argument("runs", nargs="+", help="name=fills.csv, one per mm_sim run")
+    p.add_argument("--structure", action="append", default=[],
+                   help="c=chart.csv,swings.csv from chart_dump --c c --swings; repeatable")
     p.add_argument("--out", default="data/hub")
     a = p.parse_args()
     runs = dict(r.split("=", 1) for r in a.runs)
-    export(a.day, a.symbol, a.chart_csv, runs, a.out)
+    structures = {}
+    for item in a.structure:
+        c, files = item.split("=", 1)
+        structures[c] = tuple(files.split(","))
+    export(a.day, a.symbol, a.chart_csv, runs, a.out, structures)
     print(f"wrote {a.out}/{a.day}_{a.symbol}: chart + {len(runs)} run(s)")
 
 

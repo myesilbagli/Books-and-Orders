@@ -47,6 +47,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | `MarketState` (1 s + 1 min charts, VWAP) shown to the strategy; `chart_dump` uses the same class | `cpp/include/orderbook/sim/market_state.hpp`, `cpp/src/sim/market_state.cpp`, `cpp/include/orderbook/sim/strategy.hpp`, `cpp/src/sim/simulator.cpp` | done (6c-1), D44 |
 | Chart snapshot on every fill (1 s + 1 min indicators, VWAP) + 15 columns in the fills CSV | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/include/orderbook/sim/fills_csv.hpp`, `cpp/src/sim/fills_csv.cpp` | done (6c-2a), D45 |
 | Local research hub, phase 1: candles, EMA 9/21, VWAP, Bollinger, Stoch RSI, our fills colored by markout; exporter to JSON | `hub/web/`, `research/hub_export.py`, `research/test_hub_export.py` | done (6c-2b), D46 |
+| Hub: market structure (ZigZag, HH/HL labels, shading) on 1 s / 15 s / 1 min / 5 min, swing size c picked by eye; `export_hub.sh` | `hub/web/src/lib/structure.ts`, `hub/web/src/components/MarketChart.tsx`, `research/export_hub.sh`, `research/hub_export.py` | done (round 2, 2b), D50 |
 | Signal study: do chart readings (EMA trend 1m / 1s, VWAP) pick out the losing fills? (stage 1) | `research/signal_study.py`, `research/test_signal_study.py` | built (6c-2c-1), not yet run on the day, D47 |
 | ATR + market structure: ZigZag swings scaled by ATR, HH/HL score (round 2) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/include/orderbook/sim/structure.hpp`, `cpp/src/sim/structure.cpp` | done (6c-2a-1), D48 |
 | Structure in every chart (1 s, 15 s, 1 min, 5 min), on every fill, in the CSVs; `chart_dump --c --swings` | `cpp/include/orderbook/sim/chart_feed.hpp`, `cpp/src/sim/market_state.cpp`, `cpp/src/sim/fills_csv.cpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/tools/chart_dump.cpp`, `research/hub_export.py` | done (6c-2a-2), D49 |
@@ -704,6 +705,14 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - use a smaller c for 5 min.
   Any of them changes the round 1 inputs slightly, so it's recorded before round 2 runs.
 
+### D50. The hub draws the structure, so c can be chosen by eye
+
+- **What it shows:** the ZigZag line through the swings, each swing labeled the way a trader would mark it (HH, HL, LH, LL), and the background shaded by the score (green up, red down, grey range). Every timeframe is there: 1 s, 15 s, 1 min, 5 min. A picker switches between c = 1, 1.5, 2 and 3.
+- **The numbers stay in C++:** `research/export_hub.sh` runs `chart_dump` once per c (in parallel, about 2 s on the slice) and `hub_export.py` turns the swings and the score's change points into JSON. The page only carries each score forward to the bars after it, and picks colors.
+- **Fills are off when the page opens:** c is chosen with the outcomes hidden. Choosing it while looking at the markouts would be fitting c to the result: one hidden test per value tried (D48).
+- **When the shading turns:** a bar's color is the score known at its close, including a swing that bar confirmed. That is what a strategy deciding after that bar sees.
+- **The labels sit at the bar that made the swing:** the line and labels show where the highs and lows were. The shading shows when they were known, which is later. The gap between them is the confirmation delay.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -735,8 +744,8 @@ research/.venv/bin/python research/bootstrap.py data/sim/ci/naive_0us.csv data/s
 # every milestone 5 number in docs/RESULTS.md: 7 runs in parallel + bootstrap tables
 research/run_m5.sh data/itch/12302019.NASDAQ_ITCH50   # writes data/sim/m5/
 
-# the hub (D46): export a day, then open http://127.0.0.1:5174
-research/.venv/bin/python research/hub_export.py 2019-12-30 AAPL data/sim/chart/AAPL_chart.csv naive_0us=data/sim/m5/naive_0us.csv as10_0us=data/sim/m5/as10_0us.csv
+# the hub (D46, D50): export a day (charts for every c + the milestone 5 fills), then open http://127.0.0.1:5174
+research/export_hub.sh data/itch/12302019.AAPL.ITCH50 2019-12-30 AAPL
 (cd hub/web && npm install && npm test && npm run dev)
 
 # signal study (D47): flagged fills vs the rest, per signal, 18 tests counted

@@ -12,7 +12,14 @@ function clock(time: number): string {
   return new Date(time * 1000).toISOString().slice(11, 19); // chart seconds are ET as UTC
 }
 
-export default function Legend(props: { bar: Bar | null; groups: FillGroup[]; horizon: Horizon }) {
+const STATE: Record<string, string> = { '2': 'up', '-2': 'down' };
+
+export default function Legend(props: {
+  bar: Bar | null;
+  groups: FillGroup[];
+  horizon: Horizon;
+  score: number | null | undefined; // undefined: structure not shown
+}) {
   const b = props.bar;
   if (!b) return <div className="legend">Move over the chart to see a bar.</div>;
   return (
@@ -29,6 +36,12 @@ export default function Legend(props: { bar: Bar | null; groups: FillGroup[]; ho
       <span>
         Stoch {n(b.stoch_k)} / {n(b.stoch_d)}
       </span>
+      <span>ATR {n(b.atr, 3)}</span>
+      {props.score !== undefined && (
+        <span className="structure">
+          Structure {props.score === null ? '–' : `${STATE[String(props.score)] ?? 'range'} (${props.score})`}
+        </span>
+      )}
       {props.groups.map((g) => (
         <span key={g.side} style={{ color: markerColor(g.markout) }}>
           {g.side === 'B' ? 'bought' : 'sold'} {g.shares} ({g.fills} {g.fills === 1 ? 'fill' : 'fills'}) · {g.markout.toFixed(2)} ¢ at {props.horizon}
