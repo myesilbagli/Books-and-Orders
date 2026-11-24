@@ -300,6 +300,98 @@ TEST(SimulatorTest, NewQuoteWaitsForLatency) {
   EXPECT_TRUE(sim.bid().has_value());
 }
 
+// --- the ladder (D60) ----------------------------------------------------------------
+
+// Orders at the touch and levels - 1 ticks behind it. The tests' prices move by 1, so
+// their tick is 1 (a real stock's is 100: $0.01).
+SimConfig ladder(std::size_t levels) {
+  SimConfig c = config();
+  c.levels = levels;
+  c.tick = 1;
+  return c;
+}
+
+std::vector<Price> prices(const std::vector<VirtualOrder>& orders) {
+  std::vector<Price> out;
+  for (const VirtualOrder& o : orders) {
+    out.push_back(o.price);
+  }
+  return out;
+}
+
+// Two levels: the best bid and one tick below it, the best ask and one tick above it.
+TEST(LadderTest, JoinsTheTouchAndTheTickBehindIt) {
+  Simulator sim(ladder(2));
+  open_market(sim);
+  EXPECT_EQ(prices(sim.bids()), (std::vector<Price>{10'000, 9'999}));
+  EXPECT_EQ(prices(sim.asks()), (std::vector<Price>{10'010, 10'011}));
+  EXPECT_EQ(sim.quote_messages(), 4u);
+  EXPECT_EQ(sim.bid()->price, 10'000);  // bid(): the best of them
+}
+
+// The bid moves up a tick: a new order joins the new best bid, the one at the old best
+// bid stays where it was in its queue (ahead of #3), and the one that fell out of the
+// window is the one moved. One message, as for the naive strategy.
+TEST(LadderTest, KeepsItsPlaceWhenTheBidMovesUp) {
+  Simulator sim(ladder(2));
+  open_market(sim);
+  feed(sim, add(kAapl, 3, 'B', 100, 10'000));  // joins behind us
+  feed(sim, add(kAapl, 4, 'B', 100, 10'001));  // better bid
+  const std::vector<VirtualOrder> bids = sim.bids();
+  ASSERT_EQ(prices(bids), (std::vector<Price>{10'001, 10'000}));
+  EXPECT_EQ(shares_ahead(sim.replay().book(kAapl), bids[1]), 100u);  // only #1, not #3
+  EXPECT_EQ(sim.quote_messages(), 5u);
+}
+
+// The best bid's level goes away: we were already waiting one tick below, ahead of #3,
+// so #3 trading fills us. The naive strategy arrives behind #3 and gets nothing.
+TEST(LadderTest, AlreadyInTheQueueWhenTheLevelBreaks) {
+  for (const std::size_t levels : {std::size_t{2}, std::size_t{1}}) {
+    Simulator sim(ladder(levels));
+    open_market(sim);
+    feed(sim, add(kAapl, 3, 'B', 100, 9'999));  // after our 9'999 order, if we have one
+    feed(sim, deleted(kAapl, 1));               // best bid is now 9'999
+    ASSERT_EQ(sim.bid()->price, 9'999);
+    feed(sim, executed(kAapl, 3, 60, 2000));
+    if (levels == 2) {
+      EXPECT_EQ(prices(sim.bids()), (std::vector<Price>{9'999, 9'998}));
+      ASSERT_EQ(sim.fills().size(), 1u);
+      EXPECT_EQ(sim.fills()[0].price, 9'999);
+      EXPECT_EQ(sim.fills()[0].quantity, 60u);
+    } else {
+      EXPECT_TRUE(sim.fills().empty());
+    }
+  }
+}
+
+// The limit counts every buy order as if it all filled: inventory 100 and a limit of 200
+// leave room for one order, so the deepest one goes and the touch keeps its order.
+TEST(LadderTest, DropsTheDeepestOrderFirstAtTheInventoryLimit) {
+  SimConfig c = ladder(2);
+  c.max_inventory = 200;
+  Simulator sim(c);
+  open_market(sim);
+  ASSERT_EQ(sim.bids().size(), 2u);  // 0 + 2 x 100 <= 200
+  feed(sim, add(kAapl, 3, 'B', 100, 10'000));
+  feed(sim, executed(kAapl, 3, 100));  // behind our 10'000 order: we buy 100
+  EXPECT_EQ(sim.inventory(), 100);
+  EXPECT_EQ(prices(sim.bids()), (std::vector<Price>{10'000}));
+  EXPECT_EQ(prices(sim.asks()), (std::vector<Price>{10'010, 10'011}));  // selling: room for 3
+}
+
+// A sell at 9'999 passes our 10'000 bid and reaches our 9'999 bid, but 60 shares fill
+// 60 of ours, the better price first.
+TEST(LadderTest, OneExecutionFillsAtMostItsOwnSize) {
+  Simulator sim(ladder(2));
+  open_market(sim);
+  feed(sim, add(kAapl, 3, 'B', 100, 9'999));  // behind our 9'999 order
+  feed(sim, executed(kAapl, 3, 60));
+  ASSERT_EQ(sim.fills().size(), 1u);
+  EXPECT_EQ(sim.fills()[0].price, 10'000);
+  EXPECT_EQ(sim.fills()[0].quantity, 60u);
+  EXPECT_EQ(sim.inventory(), 60);
+}
+
 // --- the strategy --------------------------------------------------------------------
 
 // A strategy for tests: answers whatever `quotes` holds and remembers what it was shown.

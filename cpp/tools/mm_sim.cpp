@@ -126,7 +126,7 @@ int main(int argc, char* argv[]) {
   if (argc < 4) {
     std::cerr << "usage: " << argv[0]
               << " <itch-file> <SYMBOL> <latency_us> [fills.csv] [--as <cents per lot>]"
-              << " [--pull <touch share>] [--rebate <cents per share>]\n";
+              << " [--pull <touch share>] [--rebate <cents per share>] [--levels <n>]\n";
     return 2;
   }
   const std::string symbol = argv[2];
@@ -135,6 +135,7 @@ int main(int argc, char* argv[]) {
   std::optional<double> as_lean_cents;
   std::optional<double> pull_share;
   double rebate_cents = 0.0;  // what the exchange pays per share of liquidity we add
+  std::size_t levels = 1;     // the ladder (D60): orders at the touch and levels - 1 ticks behind
   for (int i = 4; i < argc; ++i) {
     const std::string arg = argv[i];
     if (arg == "--as" && i + 1 < argc) {
@@ -143,6 +144,8 @@ int main(int argc, char* argv[]) {
       pull_share = std::strtod(argv[++i], nullptr);
     } else if (arg == "--rebate" && i + 1 < argc) {
       rebate_cents = std::strtod(argv[++i], nullptr);
+    } else if (arg == "--levels" && i + 1 < argc) {
+      levels = std::strtoull(argv[++i], nullptr, 10);
     } else {
       csv_path = arg;
     }
@@ -164,7 +167,8 @@ int main(int argc, char* argv[]) {
                                   .latency_ns = latency_ns,
                                   .max_inventory = 500,
                                   .start_ns = 9 * kHour + 31 * 60 * kSecond,
-                                  .end_ns = 16 * kHour};
+                                  .end_ns = 16 * kHour,
+                                  .levels = levels};
   // The strategy has to outlive the simulator (it's used by reference), so it's made
   // first. unique_ptr<Strategy> holds either kind; it deletes the object when main ends.
   std::unique_ptr<ob::sim::Strategy> strategy;
@@ -191,6 +195,11 @@ int main(int argc, char* argv[]) {
     driver = pull.get();
     std::ostringstream name;
     name << strategy_name << ", pulled below " << *pull_share * 100 << "% of the touch";
+    strategy_name = name.str();
+  }
+  if (config.levels > 1) {
+    std::ostringstream name;
+    name << strategy_name << ", ladder of " << config.levels << " levels";
     strategy_name = name.str();
   }
   ob::sim::Simulator sim(config, *driver);

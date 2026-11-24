@@ -59,6 +59,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Efficiency ratio (10 bars) on every chart, every fill, both CSVs (6e-1) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/src/sim/chart_feed.cpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/src/sim/fills_csv.cpp` | done, D57 |
 | Hub: the 10 development days, ER pane, trend/range shading from structure + ER with two threshold sliders (6e-2) | `hub/web/src/lib/regime.ts`, `hub/web/src/components/MarketChart.tsx`, `hub/web/src/App.tsx`, `research/export_days.sh`, `research/export_hub.sh`, `research/hub_export.py` | done, D58 |
 | Where the loss comes from: queue (level broke) and trend (hindsight leg, confirmed leg, structure, strong trend), round 7a | `research/fill_anatomy.py`, `research/test_fill_anatomy.py` | done, D59 |
+| Ladder: orders at the touch and levels − 1 ticks behind, each kept in its queue; `mm_sim --levels`; runs compared paired by day and block (7b-1) | `cpp/include/orderbook/sim/simulator.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/tools/mm_sim.cpp`, `research/run_days.sh`, `research/compare_runs.py` | done, D60 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -869,6 +870,19 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Exploration (D55):** questions and expectations written before the run, results in the private log; 5 primary tests, 30 in all.
 - **What it decides:** whether the next step is a ladder (more fills while the level holds, 7b-1), a trend strategy, or a faster trend read.
 
+### D60. The ladder: orders waiting behind the touch, to be ahead when the price gets there
+
+- **Why:** we always join the back of the queue, and the back fills only once the whole level has traded, which is often just before the price moves through it (D33, D59). A firm that wants queue priority leaves orders resting a tick or two behind the touch, so that when the price comes to them they are already well up the queue.
+- **The rule (`SimConfig.levels`, `mm_sim --levels n`):** the strategy still names one price per side (the top). The simulator holds an order there and at each of the next n − 1 ticks behind it (bids below, asks above).
+  - An order whose price stays in that window is never touched, so it keeps its place in its queue.
+  - An order that leaves the window moves to the window's price that has none, nearest the touch first (one message, like the single quote's move); when none is left it is pulled.
+  - Example, 2 levels: bid 100.00 → we rest at 100.00 and 99.99. The bid rises to 100.01: a new order joins 100.01 at the back, 100.00 stays where it was in its queue, 99.99 leaves the window and is the one moved. The level at 100.00 breaks: we are already queued at 99.99.
+- **The limit counts the whole ladder:** position + every resting order on a side ≤ the limit, as if all of it filled at once. When it binds the deepest order goes first. With one level this is the old rule exactly; with more it binds earlier, which the comparison has to keep in mind.
+- **One execution fills at most its own size:** the aggressor reaches our better prices first, so those fill first, and each executed share fills one of ours at most.
+- **Why the simulator builds the ladder, not the strategy:** every strategy (naive, Avellaneda-Stoikov, the pull rule, a later trend rule) gets it unchanged, and `levels = 1` is the old simulator: the milestone 5 runs and the 10-day baseline come out byte-identical (fills CSVs, reports and bootstrap tables; only the run time line changes).
+- **Data structure:** one `QuoteSide` per level in a `std::vector`, at most 8 (`kMaxLevels`); the per-message bookkeeping uses `std::array<bool, 8>` on the stack, so nothing is allocated on the hot path. A handful of orders, so a linear scan beats a map.
+- **Compared paired:** `research/compare_runs.py` takes other runs minus a base run, cents a share within each day, with the signal study's stratified block bootstrap (D56): the same 5 min blocks for both runs. Plus shares traded and the share filled as the level broke. Exploration (D55): expectations written before the run, results in the private log; 2 primary tests.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -914,6 +928,8 @@ research/.venv/bin/python research/fill_anatomy.py data/sim/days/AAPL/*/naive_0u
 research/.venv/bin/python research/dbn_to_itch.py data/databento/AAPL_20191230_XNAS_mbo.dbn.zst AAPL data/itch/20191230.AAPL.dbn.ITCH50
 research/convert_days.sh AAPL 2026   # every downloaded day: convert (skips done ones) + replay check (D54)
 research/run_days.sh AAPL 2026   # baseline on every converted day, one line per day (D55): data/sim/days/AAPL/
+research/run_days.sh AAPL 2026 data/sim/days ladder2_0us --levels 2   # any run by name, with mm_sim options (D60)
+research/.venv/bin/python research/compare_runs.py naive_0us ladder2_0us ladder3_0us   # runs vs a base, paired by day and block (D60)
 research/.venv/bin/python research/pick_days.py   # the development and hold-out days (D53)
 
 # chart bars + indicators vs Databento's bars for the same day (D42; needs the two .dbn.zst files)

@@ -6,6 +6,7 @@
 #include "orderbook/sim/queue.hpp"
 #include "orderbook/sim/strategy.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -38,16 +39,25 @@ struct SimConfig {
   std::uint64_t start_ns;         // quote only in [start_ns, end_ns), ns since midnight
   std::uint64_t end_ns;
   MarketStateConfig market = {};  // charts and VWAP shown to the strategy (D44)
+  // The ladder (D60): one order at the strategy's price and one at each of the next
+  // levels - 1 ticks behind it, each left alone while it stays in that window, so it keeps
+  // its place in its queue. 1 is the single quote of milestones 4-6.
+  std::size_t levels = 1;
+  Price tick = 100;  // one price step: $0.01, in price units of $0.0001
 };
+
+// Most levels one side may hold: a fixed bound lets the per-message bookkeeping live in
+// std::array on the stack, with no allocation on the hot path.
+inline constexpr std::size_t kMaxLevels = 8;
 
 class Simulator {
  public:
   // With the naive strategy (the milestone 4 baseline).
-  explicit Simulator(const SimConfig& config)
-      : config_(config), market_(config.market), strategy_(&naive_) {}
+  // Delegates to the constructor below, so the members are set up in one place. Only
+  // naive_'s address is taken here, which is fine before it is constructed.
+  explicit Simulator(const SimConfig& config) : Simulator(config, naive_) {}
   // With any strategy. It's used by reference, not copied: it must outlive the simulator.
-  Simulator(const SimConfig& config, Strategy& strategy)
-      : config_(config), market_(config.market), strategy_(&strategy) {}
+  Simulator(const SimConfig& config, Strategy& strategy);
 
   // A copy's strategy_ could point at the original's naive_, which may be gone.
   Simulator(const Simulator&) = delete;
@@ -63,8 +73,12 @@ class Simulator {
   [[nodiscard]] const std::vector<Fill>& fills() const { return fills_; }
   // Our stock's mid every time it changed, in time order: what markouts are measured on.
   [[nodiscard]] const std::vector<MidPoint>& mids() const { return mids_; }
-  [[nodiscard]] const std::optional<VirtualOrder>& bid() const { return bid_.live; }
-  [[nodiscard]] const std::optional<VirtualOrder>& ask() const { return ask_.live; }
+  // Our best live bid and ask (with one level: our only one).
+  [[nodiscard]] const std::optional<VirtualOrder>& bid() const { return best(bids_); }
+  [[nodiscard]] const std::optional<VirtualOrder>& ask() const { return best(asks_); }
+  // Every live order on a side, best price first.
+  [[nodiscard]] std::vector<VirtualOrder> bids() const { return live(bids_); }
+  [[nodiscard]] std::vector<VirtualOrder> asks() const { return live(asks_); }
 
   [[nodiscard]] std::int64_t inventory() const { return inventory_; }  // shares, + is long
   // Every new quote, price change or pull we sent: what an exchange counts against us
@@ -89,8 +103,9 @@ class Simulator {
   SimConfig config_;
   MarketState market_;  // our stock's charts, fed on its messages (D44)
   Replayer replay_;
-  QuoteSide bid_{.side = Side::Buy};
-  QuoteSide ask_{.side = Side::Sell};
+  // One QuoteSide per level, in no particular price order (D60).
+  std::vector<QuoteSide> bids_;
+  std::vector<QuoteSide> asks_;
   std::vector<Fill> fills_;
   std::vector<MidPoint> mids_;
   std::int64_t inventory_ = 0;
@@ -101,9 +116,18 @@ class Simulator {
   Strategy* strategy_;                // a pointer, not a reference, so it can point at naive_
 
   void activate(QuoteSide& q, std::uint64_t now_ns);
-  void check_fill(QuoteSide& q, const Order& executed, Quantity shares, std::uint64_t now_ns);
+  // Returns how many of the executed shares went to us.
+  Quantity check_fill(QuoteSide& q, const Order& executed, Quantity shares, Quantity cap,
+                      std::uint64_t now_ns);
+  void fill_side(std::vector<QuoteSide>& side, const Order& executed, Quantity shares,
+                 std::uint64_t now_ns);
   void requote(std::uint64_t now_ns);
+  void ladder(std::vector<QuoteSide>& side, std::optional<Price> top, std::size_t count,
+              Price step, std::uint64_t now_ns);
   void decide(QuoteSide& q, std::optional<Price> target, std::uint64_t now_ns);
+  [[nodiscard]] static std::optional<Price> heading_to(const QuoteSide& q);
+  [[nodiscard]] static const std::optional<VirtualOrder>& best(const std::vector<QuoteSide>& side);
+  [[nodiscard]] static std::vector<VirtualOrder> live(const std::vector<QuoteSide>& side);
 };
 
 }  // namespace ob::sim

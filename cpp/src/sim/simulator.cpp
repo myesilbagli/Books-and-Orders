@@ -8,6 +8,31 @@
 
 namespace ob::sim {
 
+namespace {
+
+// A better price for that side: a higher bid, a lower ask.
+bool better(Side side, Price a, Price b) { return side == Side::Buy ? a > b : a < b; }
+
+// How many orders of `size` fit in `room` shares, at most `levels`: every resting order
+// counts as if it all filled, so the position can't pass the limit even if the whole
+// ladder is hit at once. With one level: 1 exactly when position + size stays in the limit.
+std::size_t orders_that_fit(std::int64_t room, std::int64_t size, std::size_t levels) {
+  if (size <= 0 || room < size) {
+    return 0;
+  }
+  return std::min(levels, static_cast<std::size_t>(room / size));
+}
+
+}  // namespace
+
+Simulator::Simulator(const SimConfig& config, Strategy& strategy)
+    : config_(config),
+      market_(config.market),
+      // One QuoteSide per level; std::clamp keeps the count within [1, kMaxLevels].
+      bids_(std::clamp<std::size_t>(config.levels, 1, kMaxLevels), QuoteSide{.side = Side::Buy}),
+      asks_(std::clamp<std::size_t>(config.levels, 1, kMaxLevels), QuoteSide{.side = Side::Sell}),
+      strategy_(&strategy) {}
+
 void Simulator::on_message(const std::uint8_t* p, std::size_t len) {
   if (len < 11) {
     replay_.apply(p, len);  // too short to have a header; the replay counts it as bad
@@ -26,8 +51,12 @@ void Simulator::on_message(const std::uint8_t* p, std::size_t len) {
 
   // 1. LOOK. Anything we sent that has reached the exchange by now is live first: it
   // was there before this event happened.
-  activate(bid_, now);
-  activate(ask_, now);
+  for (QuoteSide& q : bids_) {
+    activate(q, now);
+  }
+  for (QuoteSide& q : asks_) {
+    activate(q, now);
+  }
 
   // An execution in our stock: look at the resting order BEFORE the book applies it,
   // because the book may remove it.
@@ -45,8 +74,8 @@ void Simulator::on_message(const std::uint8_t* p, std::size_t len) {
     }
     if (ref) {
       if (const Order* resting = replay_.book(locate).find(*ref)) {
-        check_fill(bid_, *resting, shares, now);
-        check_fill(ask_, *resting, shares, now);
+        fill_side(bids_, *resting, shares, now);
+        fill_side(asks_, *resting, shares, now);
       }
     }
   }
@@ -84,14 +113,39 @@ void Simulator::activate(QuoteSide& q, std::uint64_t now_ns) {
   q.pending = false;
 }
 
-void Simulator::check_fill(QuoteSide& q, const Order& executed, Quantity shares,
-                           std::uint64_t now_ns) {
-  if (!q.live) {
-    return;
+void Simulator::fill_side(std::vector<QuoteSide>& side, const Order& executed,
+                          Quantity shares, std::uint64_t now_ns) {
+  // An aggressor reaches our better prices first, so they fill first, and each executed
+  // share fills at most one of ours. A handful of levels: pick the best one left each time.
+  std::array<bool, kMaxLevels> done{};
+  Quantity left = shares;
+  for (std::size_t round = 0; round < side.size() && left > 0; ++round) {
+    std::size_t pick = side.size();  // "none yet"
+    for (std::size_t i = 0; i < side.size(); ++i) {
+      if (done[i] || !side[i].live) {
+        continue;
+      }
+      if (pick == side.size() || better(side[i].side, side[i].live->price, side[pick].live->price)) {
+        pick = i;
+      }
+    }
+    if (pick == side.size()) {
+      return;  // no live order left on this side
+    }
+    done[pick] = true;
+    left -= check_fill(side[pick], executed, shares, left, now_ns);
   }
-  const Quantity filled = fill_from_execution(*q.live, executed, shares);
+}
+
+Quantity Simulator::check_fill(QuoteSide& q, const Order& executed, Quantity shares,
+                               Quantity cap, std::uint64_t now_ns) {
+  if (!q.live) {
+    return 0;
+  }
+  // `cap`: what this execution has left after filling our better-priced orders.
+  const Quantity filled = fill_from_execution(*q.live, executed, cap);
   if (filled == 0) {
-    return;
+    return 0;
   }
   const Price price = q.live->price;
 
@@ -142,6 +196,7 @@ void Simulator::check_fill(QuoteSide& q, const Order& executed, Quantity shares,
   if (q.live->remaining == 0) {
     q.live.reset();  // fully filled: the strategy requotes on its next decision
   }
+  return filled;
 }
 
 void Simulator::requote(std::uint64_t now_ns) {
@@ -149,8 +204,10 @@ void Simulator::requote(std::uint64_t now_ns) {
   const auto best_bid = book.best_bid();
   const auto best_ask = book.best_ask();
 
-  std::optional<Price> bid_target;
+  std::optional<Price> bid_target;  // the ladder's top: the strategy's price
   std::optional<Price> ask_target;
+  std::size_t bid_count = 0;  // how many orders the ladder may hold on that side
+  std::size_t ask_count = 0;
 
   // Only a normal two-sided market has a mid, and only then is the strategy asked.
   if (best_bid && best_ask && *best_bid < *best_ask) {
@@ -173,32 +230,76 @@ void Simulator::requote(std::uint64_t now_ns) {
     const Quotes wanted = strategy_->quote(view);
 
     const bool open = now_ns >= config_.start_ns && now_ns < config_.end_ns;
-    // Don't send a quote whose fill could take the position past the limit.
+    // Don't hold orders whose fills could take the position past the limit.
     const auto size = static_cast<std::int64_t>(config_.quote_size);
-    const bool may_buy = inventory_ + size <= config_.max_inventory;
-    const bool may_sell = inventory_ - size >= -config_.max_inventory;
+    const std::size_t may_buy = orders_that_fit(config_.max_inventory - inventory_, size, bids_.size());
+    const std::size_t may_sell = orders_that_fit(config_.max_inventory + inventory_, size, asks_.size());
 
     // Never better than the touch: a price inside the spread is one nobody in the real
     // data saw or reacted to, so the replay couldn't tell what would have happened (D30).
     // This also keeps us passive: a bid can never reach the ask and trade.
-    if (open && may_buy && wanted.bid && *wanted.bid > 0) {
+    if (open && may_buy > 0 && wanted.bid && *wanted.bid > 0) {
       bid_target = std::min(*wanted.bid, *best_bid);
+      bid_count = may_buy;
     }
-    if (open && may_sell && wanted.ask && *wanted.ask > 0) {
+    if (open && may_sell > 0 && wanted.ask && *wanted.ask > 0) {
       ask_target = std::max(*wanted.ask, *best_ask);
+      ask_count = may_sell;
     }
   }
 
-  decide(bid_, bid_target, now_ns);
-  decide(ask_, ask_target, now_ns);
+  ladder(bids_, bid_target, bid_count, -config_.tick, now_ns);  // bids step down
+  ladder(asks_, ask_target, ask_count, config_.tick, now_ns);   // asks step up
+}
+
+void Simulator::ladder(std::vector<QuoteSide>& side, std::optional<Price> top, std::size_t count,
+                       Price step, std::uint64_t now_ns) {
+  // The prices wanted: top, top + step, ... `count` of them, the touch first.
+  // An order already at (or on its way to) one of them is left alone: moving it would
+  // throw away its place in that queue, which is the point of the ladder (D60).
+  std::array<bool, kMaxLevels> kept{};     // per order
+  std::array<bool, kMaxLevels> covered{};  // per wanted price
+  for (std::size_t i = 0; top && i < side.size(); ++i) {
+    const std::optional<Price> at = heading_to(side[i]);
+    for (std::size_t k = 0; at && k < count; ++k) {
+      if (!covered[k] && *at == *top + step * static_cast<Price>(k)) {
+        kept[i] = true;
+        covered[k] = true;
+        break;
+      }
+    }
+  }
+  // Every other order moves to the wanted price nearest the touch that no order covers,
+  // or is pulled when none is left, so the deepest price is the first to go when the
+  // limit binds. Orders that are live or on their way are moved first: moving one is a
+  // single message, where pulling it and sending an idle one would be two.
+  std::size_t k = 0;
+  // Two passes over the orders: `{true, false}` is a two-value list to loop over.
+  for (const bool busy : {true, false}) {
+    for (std::size_t i = 0; i < side.size(); ++i) {
+      if (kept[i] || heading_to(side[i]).has_value() != busy) {
+        continue;
+      }
+      while (k < count && covered[k]) {
+        ++k;
+      }
+      std::optional<Price> target;
+      if (top && k < count) {
+        const Price price = *top + step * static_cast<Price>(k);
+        if (price > 0) {
+          target = price;
+        }
+        covered[k] = true;
+      }
+      decide(side[i], target, now_ns);
+    }
+  }
 }
 
 void Simulator::decide(QuoteSide& q, std::optional<Price> target, std::uint64_t now_ns) {
-  // Where we'll be once everything already sent has arrived. If that's the target,
-  // do nothing: resending would throw away our place in the queue.
-  const std::optional<Price> heading_to =
-      q.pending ? q.pending_price : (q.live ? std::optional<Price>(q.live->price) : std::nullopt);
-  if (heading_to == target) {
+  // If that's where we're already heading, do nothing: resending would throw away our
+  // place in the queue.
+  if (heading_to(q) == target) {
     return;
   }
   ++quote_messages_;
@@ -206,6 +307,37 @@ void Simulator::decide(QuoteSide& q, std::optional<Price> target, std::uint64_t 
   q.pending_price = target;
   q.pending_at_ns = now_ns + config_.latency_ns;
   activate(q, now_ns);  // with zero latency it takes effect right away
+}
+
+std::optional<Price> Simulator::heading_to(const QuoteSide& q) {
+  // Where this order will be once everything already sent has arrived.
+  return q.pending ? q.pending_price : (q.live ? std::optional<Price>(q.live->price) : std::nullopt);
+}
+
+const std::optional<VirtualOrder>& Simulator::best(const std::vector<QuoteSide>& side) {
+  const QuoteSide* top = &side.front();  // if nothing is live, its empty slot says so
+  for (const QuoteSide& q : side) {
+    if (q.live && (!top->live || better(q.side, q.live->price, top->live->price))) {
+      top = &q;
+    }
+  }
+  return top->live;
+}
+
+std::vector<VirtualOrder> Simulator::live(const std::vector<QuoteSide>& side) {
+  std::vector<VirtualOrder> out;
+  for (const QuoteSide& q : side) {
+    if (!q.live) {
+      continue;
+    }
+    // Insert in price order, best first: a few orders, so a linear walk is enough.
+    std::size_t at = 0;
+    while (at < out.size() && !better(q.side, q.live->price, out[at].price)) {
+      ++at;
+    }
+    out.insert(out.begin() + static_cast<std::ptrdiff_t>(at), *q.live);
+  }
+  return out;
 }
 
 double Simulator::pnl_dollars() const {
