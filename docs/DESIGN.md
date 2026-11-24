@@ -61,6 +61,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Where the loss comes from: queue (level broke) and trend (hindsight leg, confirmed leg, structure, strong trend), round 7a | `research/fill_anatomy.py`, `research/test_fill_anatomy.py` | done, D59 |
 | Ladder: orders at the touch and levels − 1 ticks behind, each kept in its queue; `mm_sim --levels`; runs compared paired by day and block (7b-1) | `cpp/include/orderbook/sim/simulator.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/tools/mm_sim.cpp`, `research/run_days.sh`, `research/compare_runs.py` | done, D60 |
 | Delayed-oracle curve: the hindsight leg learned L seconds late, for L = 0 to 300 s (7c) | `research/oracle_curve.py`, `research/fill_anatomy.py` (`delayed_leg`) | done, D61 |
+| Real-time reads placed on the delayed-oracle curve: equivalent lag, coverage, agreement with the hindsight leg (7d-1) | `research/turn_reads.py`, `research/test_turn_reads.py` | done, D62 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -892,6 +893,13 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Measured:** fills against what is believed minus the rest, at 1 s and 10 s, within days with the stratified block bootstrap (D56), and the share of the no-lag gap left at each L. For context, the median leg length and the median confirmation delay of the real swings.
 - **A descriptive curve:** no primary test (14 supporting). It sets the speed a read needs, not whether a rule works. `corrected_level` now returns 95 % for a set with no primary test, instead of dividing by zero.
 
+### D62. Every trend read on one scale: its equivalent lag (round 7d-1)
+
+- **Why:** round 7c gives a ruler: the 1 s gap of a trader who learns the hindsight 1 min leg L seconds late, from L = 0 (the oracle) to the lag where it is worth nothing. Any real-time read can be put on it: a read whose fills-against-it gap equals the 30 s point is "as good as knowing the leg 30 s late". One number per read, comparable across very different reads (structure, EMAs, later candle patterns and order flow).
+- **Equivalent lag:** straight lines between the curve's points, read only up to where the curve first reaches 0 (past that point a later belief is the wrong leg, and the curve turns back). A gap at or below the oracle's is 0 s; a gap at or above 0 is "nothing". The curve is computed in the same run, from the same fills and the same bootstrap draws.
+- **Also per read:** coverage (share of shares it gives a direction to) and agreement with the hindsight leg where both have one. Agreement alone is not the measure: a read can match the leg most of the time and still be worth nothing, if it is right mid-leg and wrong at the turns.
+- **Reads in this round:** the ones already in every fill: structure on 1 min, 15 s and 1 s; a 15 s strong trend (±2 and ER ≥ 0.6); the EMA 9/21 trend on 1 s and 1 min; the confirmed 1 min leg (D59). Exploration, descriptive (no primary test); results in the private log. Next (7d-2): reads that see a turn as it happens, among them price-action setups the founder picks.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -933,6 +941,7 @@ research/.venv/bin/python research/signal_study.py data/sim/m5/naive_0us.csv --r
 research/.venv/bin/python research/signal_study.py data/sim/days/AAPL/*/naive_0us.csv --round 2   # several days (D56)
 research/.venv/bin/python research/fill_anatomy.py data/sim/days/AAPL/*/naive_0us.csv   # queue and trend, oracle vs real time (D59); needs export_days.sh
 research/.venv/bin/python research/oracle_curve.py data/sim/days/AAPL/*/naive_0us.csv   # the oracle learned L s late, L = 0-300 s (D61)
+research/.venv/bin/python research/turn_reads.py data/sim/days/AAPL/*/naive_0us.csv   # each read's equivalent lag on that curve (D62)
 
 # any day from Databento (D52): MBO for one stock -> ITCH 5.0, then every tool runs on it
 research/.venv/bin/python research/dbn_to_itch.py data/databento/AAPL_20191230_XNAS_mbo.dbn.zst AAPL data/itch/20191230.AAPL.dbn.ITCH50
