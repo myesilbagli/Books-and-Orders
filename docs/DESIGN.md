@@ -60,6 +60,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Hub: the 10 development days, ER pane, trend/range shading from structure + ER with two threshold sliders (6e-2) | `hub/web/src/lib/regime.ts`, `hub/web/src/components/MarketChart.tsx`, `hub/web/src/App.tsx`, `research/export_days.sh`, `research/export_hub.sh`, `research/hub_export.py` | done, D58 |
 | Where the loss comes from: queue (level broke) and trend (hindsight leg, confirmed leg, structure, strong trend), round 7a | `research/fill_anatomy.py`, `research/test_fill_anatomy.py` | done, D59 |
 | Ladder: orders at the touch and levels − 1 ticks behind, each kept in its queue; `mm_sim --levels`; runs compared paired by day and block (7b-1) | `cpp/include/orderbook/sim/simulator.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/tools/mm_sim.cpp`, `research/run_days.sh`, `research/compare_runs.py` | done, D60 |
+| Delayed-oracle curve: the hindsight leg learned L seconds late, for L = 0 to 300 s (7c) | `research/oracle_curve.py`, `research/fill_anatomy.py` (`delayed_leg`) | done, D61 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -883,6 +884,14 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Data structure:** one `QuoteSide` per level in a `std::vector`, at most 8 (`kMaxLevels`); the per-message bookkeeping uses `std::array<bool, 8>` on the stack, so nothing is allocated on the hot path. A handful of orders, so a linear scan beats a map.
 - **Compared paired:** `research/compare_runs.py` takes other runs minus a base run, cents a share within each day, with the signal study's stratified block bootstrap (D56): the same 5 min blocks for both runs. Plus shares traded and the share filled as the level broke. Exploration (D55): expectations written before the run, results in the private log; 2 primary tests at 0 µs, 1 more at 50 µs (`LATENCY_US`), where a ladder already queued at the next level might have offset arriving late.
 
+### D61. How fast would a trend read have to be? The delayed-oracle curve (round 7c)
+
+- **Why:** round 7a found that knowing the 1 min leg with hindsight is worth a lot, and knowing it once its swing is confirmed is worth nothing (D59). In between is a question of time: how fast does the value fade as the trend is learned later? The answer is the speed any trend read must reach.
+- **Rule:** the hindsight leg, learned L seconds after its turning bar ends; until then the trader still believes the leg before (legs alternate, so: the opposite direction). L = 0 is the oracle exactly (a test checks it fill for fill). L = 0, 5, 15, 30, 60, 120, 300 s.
+  - The first leg of a day has no leg before it: its fills before the lag has passed are left out.
+- **Measured:** fills against what is believed minus the rest, at 1 s and 10 s, within days with the stratified block bootstrap (D56), and the share of the no-lag gap left at each L. For context, the median leg length and the median confirmation delay of the real swings.
+- **A descriptive curve:** no primary test (14 supporting). It sets the speed a read needs, not whether a rule works. `corrected_level` now returns 95 % for a set with no primary test, instead of dividing by zero.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -923,6 +932,7 @@ research/export_days.sh AAPL 2026   # the 10 development days: charts, structure
 research/.venv/bin/python research/signal_study.py data/sim/m5/naive_0us.csv --round 2   # --round 1: EMA trend and VWAP
 research/.venv/bin/python research/signal_study.py data/sim/days/AAPL/*/naive_0us.csv --round 2   # several days (D56)
 research/.venv/bin/python research/fill_anatomy.py data/sim/days/AAPL/*/naive_0us.csv   # queue and trend, oracle vs real time (D59); needs export_days.sh
+research/.venv/bin/python research/oracle_curve.py data/sim/days/AAPL/*/naive_0us.csv   # the oracle learned L s late, L = 0-300 s (D61)
 
 # any day from Databento (D52): MBO for one stock -> ITCH 5.0, then every tool runs on it
 research/.venv/bin/python research/dbn_to_itch.py data/databento/AAPL_20191230_XNAS_mbo.dbn.zst AAPL data/itch/20191230.AAPL.dbn.ITCH50

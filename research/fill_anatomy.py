@@ -61,6 +61,19 @@ def oracle_leg(swings, t_ns, bar_ns=BAR_NS):
     return _direction(swings[i].kind)
 
 
+def delayed_leg(swings, t_ns, lag_ns, bar_ns=BAR_NS):
+    """The hindsight leg, learned `lag_ns` after its turning bar ends (7c). Until then the
+    trader still believes the leg before it. lag 0 is oracle_leg. The same fills are left
+    out as there, plus the first leg's until its lag has passed (nothing was believed)."""
+    leg = oracle_leg(swings, t_ns, bar_ns)
+    if leg is None:
+        return None
+    i = bisect.bisect_right([s.made_ns for s in swings], t_ns) - 1
+    if t_ns >= swings[i].made_ns + bar_ns + lag_ns:
+        return leg
+    return -leg if i > 0 else None  # legs alternate: the one before ran the other way
+
+
 def confirmed_leg(swings, t_ns):
     """The leg as known at t: from the last swing confirmed by then. No look-ahead."""
     known = [s for s in swings if s.confirmed_ns <= t_ns]

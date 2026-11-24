@@ -92,6 +92,22 @@ class Signals(unittest.TestCase):
         self.assertIsNone(ss._is_flagged(strong, row(1, "B", 10_000, structure_1m=-2)))
 
 
+class DelayedLeg(unittest.TestCase):
+    # The hindsight leg, learned only `lag` after its turning bar ends: until then the trader
+    # still believes the leg before it.
+    def test_previous_leg_until_the_lag_has_passed(self):
+        lag = 30 * S
+        # The down leg starts at the high's bar (400 s); its bar ends at 460 s, known at 490 s.
+        self.assertEqual(fa.delayed_leg(SWINGS, 470 * S, lag, BAR), 1)    # still believes up
+        self.assertEqual(fa.delayed_leg(SWINGS, 490 * S, lag, BAR), -1)   # now knows down
+        self.assertIsNone(fa.delayed_leg(SWINGS, 180 * S, lag, BAR))      # first leg: nothing before
+
+    # No lag is the oracle itself, fill for fill.
+    def test_no_lag_is_the_oracle(self):
+        for t in range(0, 1000, 7):
+            self.assertEqual(fa.delayed_leg(SWINGS, t * S, 0, BAR), fa.oracle_leg(SWINGS, t * S, BAR))
+
+
 class CrossTable(unittest.TestCase):
     # Shares and cents a share in each cell: level broke or held x against or with the leg.
     def test_cells(self):

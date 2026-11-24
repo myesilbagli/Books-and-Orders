@@ -210,6 +210,11 @@ class Round2Study(unittest.TestCase):
         self.assertEqual(sum(r.primary for r in self.results), 3)
         self.assertAlmostEqual(ss.corrected_level(ss.ROUNDS[2]), 1 - 0.05 / 3)
 
+    # A descriptive set (no primary test, e.g. 7c's curve) needs no correction: 95 %.
+    def test_no_primary_no_correction(self):
+        descriptive = [ss.Signal("x", "x", ss.structure_reading("1m"), primary=False)]
+        self.assertAlmostEqual(ss.corrected_level(descriptive), 0.95)
+
     # A: the downtrend buys (-2) against the range buys (+1).
     def test_against_the_structure(self):
         self.assertAlmostEqual(self.find("1m structure").diff, -3.0)

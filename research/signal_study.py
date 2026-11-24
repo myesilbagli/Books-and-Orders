@@ -125,7 +125,8 @@ ROUNDS = {1: SIGNALS, 2: ROUND2}
 def corrected_level(signals):
     """The primary tests' corrected interval: Bonferroni keeps the chance of any false
     "real" among them at 5 %, so each one is held to 5 % / their number."""
-    return 1 - 0.05 / sum(s.primary for s in signals)
+    primary = sum(s.primary for s in signals)
+    return 1 - 0.05 / primary if primary else 0.95  # nothing primary: nothing to correct
 
 
 CORRECTED_LEVEL = corrected_level(SIGNALS)
