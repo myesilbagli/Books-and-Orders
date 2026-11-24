@@ -43,7 +43,7 @@ def _number(text):
 
 
 def read_chart(path, midnight):
-    """The chart CSV (D41, D49) as {timeframe: [bar, ...]}, oldest first, for every
+    """The chart CSV (D41, D49, D57) as {timeframe: [bar, ...]}, oldest first, for every
     timeframe in the file (1s, 15s, 1m, 5m)."""
     chart = {}
     with open(path, newline="") as f:
@@ -51,6 +51,8 @@ def read_chart(path, midnight):
             bar = {"time": chart_time(midnight, r["time_et"]), "volume": int(r["volume"])}
             bar.update({k: _number(r[k]) for k in CHART_FIELDS})
             bar["structure"] = int(r["structure"]) if r["structure"] != "" else None
+            # Efficiency ratio (D57), the last column; a chart written before it has none.
+            bar["er"] = _number(r.get("er") or "")
             chart.setdefault(r["timeframe"], []).append(bar)
     return chart
 

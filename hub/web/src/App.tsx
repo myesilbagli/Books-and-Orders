@@ -18,6 +18,10 @@ export default function App() {
   const [c, setC] = useState('2');
   const [structure, setStructure] = useState<Structure | null>(null);
   const [showBands, setShowBands] = useState(false);
+  // Trend vs range from structure + ER (D58); the founder moves the two lines by eye.
+  const [showRegime, setShowRegime] = useState(true);
+  const [erLow, setErLow] = useState(0.3);
+  const [erHigh, setErHigh] = useState(0.6);
   const [bars, setBars] = useState<Bar[]>([]);
   const [fills, setFills] = useState<Fill[]>([]);
   const [error, setError] = useState('');
@@ -119,6 +123,18 @@ export default function App() {
             <Toggle options={day?.structure_c ?? []} value={c} onChange={setC} />
           </label>
         )}
+        {showStructure && (
+          <label className="check">
+            <input type="checkbox" checked={showRegime} onChange={(e) => setShowRegime(e.target.checked)} /> ER regime
+          </label>
+        )}
+        {showStructure && showRegime && (
+          <>
+            {/* Each slider stops at the other, so the range line never passes the trend line. */}
+            <Slider label="range ≤" value={erLow} onChange={(v) => setErLow(Math.min(v, erHigh))} />
+            <Slider label="trend ≥" value={erHigh} onChange={(v) => setErHigh(Math.max(v, erLow))} />
+          </>
+        )}
         <span className="summary">
           {summary.fills.toLocaleString()} fills · {summary.shares.toLocaleString()} shares ·{' '}
           {summary.markout === null ? '–' : `${summary.markout.toFixed(2)} ¢/share`} at {horizon}
@@ -132,6 +148,9 @@ export default function App() {
         horizon={horizon}
         showBands={showBands}
         structure={showStructure ? structure : null}
+        showRegime={showRegime}
+        erLow={erLow}
+        erHigh={erHigh}
       />
     </div>
   );
@@ -148,5 +167,23 @@ function Toggle<T extends string>(props: { options: T[]; value: T; onChange: (v:
         </button>
       ))}
     </span>
+  );
+}
+
+// An ER threshold, 0-1 in steps of 0.05, with its value beside it.
+function Slider(props: { label: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <label className="slider">
+      ER {props.label}
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.05}
+        value={props.value}
+        onChange={(e) => props.onChange(Number(e.target.value))}
+      />
+      <span>{props.value.toFixed(2)}</span>
+    </label>
   );
 }

@@ -54,7 +54,7 @@ Simulator ── our quotes in the real queues, latency, fills, inventory
 fills CSV (each fill with the charts as they were at that moment)
    │
    ├── research/ (Python): bootstrap intervals, signal studies
-   └── hub/ (TypeScript): candles, indicators, structure and fills on one chart
+   └── hub/ (TypeScript): candles, indicators, structure, trend/range and fills on one chart
 ```
 
 ## Repository
@@ -93,8 +93,9 @@ research/run_days.sh AAPL 2026       # the baseline on each of those days, one l
 # milestone 5: 7 simulator runs + bootstrap tables
 research/run_m5.sh data/itch/12302019.AAPL.ITCH50
 
-# the hub: export the day, then open http://127.0.0.1:5174
+# the hub: export the days, then open http://127.0.0.1:5174
 research/export_hub.sh data/itch/12302019.AAPL.ITCH50 2019-12-30 AAPL
+research/export_days.sh AAPL 2026    # the 10 development days, with trend/range shading
 (cd hub/web && npm install && npm run dev)
 ```
 

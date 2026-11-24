@@ -18,3 +18,8 @@ select { font: inherit; padding: 3px 6px; }
 .vwap { color: #9333ea; }
 .chart { flex: 1; min-height: 0; background: #fff; border: 1px solid #e5e7eb; }
 .structure { font-weight: 600; }
+.er { color: #0f766e; }
+.regime { font-weight: 600; }
+.slider { display: inline-flex; align-items: center; gap: 4px; }
+.slider input { width: 90px; }
+.slider span { font-variant-numeric: tabular-nums; min-width: 2.5em; }

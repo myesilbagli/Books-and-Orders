@@ -57,6 +57,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Baseline on the 10 development days, one line per day (6d-1) | `research/run_days.sh`, `research/day_summary.py` | done, D55 |
 | Signal study over several days: within-day difference, stratified bootstrap, days worse (6d-2) | `research/signal_study.py` (`study_days`) | done, D56 |
 | Efficiency ratio (10 bars) on every chart, every fill, both CSVs (6e-1) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/src/sim/chart_feed.cpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/src/sim/fills_csv.cpp` | done, D57 |
+| Hub: the 10 development days, ER pane, trend/range shading from structure + ER with two threshold sliders (6e-2) | `hub/web/src/lib/regime.ts`, `hub/web/src/components/MarketChart.tsx`, `hub/web/src/App.tsx`, `research/export_days.sh`, `research/export_hub.sh`, `research/hub_export.py` | done, D58 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -836,6 +837,25 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Thresholds come next (6e-2):** the hub shades trend and range from the structure and the ER, with the two ER thresholds picked by eye, fills hidden, as c was. The hub only compares the ER with a threshold; it computes nothing.
 - **Regression:** the milestone 5 runs and the 10-day baseline give byte-identical first 29 columns and identical reports and bootstrap tables (only the run time line changes).
 
+### D58. Trend vs range on the chart: structure for the direction, ER for the strength
+
+- **Why:** before the ER enters the signal study, its thresholds are picked by eye on the chart, with the fills hidden, as the swing size c was (D48). Seeing the outcome first would fit the thresholds to it.
+- **The rule, per bar:**
+
+  | Structure score | ER ≤ low | low < ER < high | ER ≥ high |
+  |---|---|---|---|
+  | +2 | range (grey) | weak trend up (light green) | strong trend up (dark green) |
+  | −2 | range (grey) | weak trend down (light red) | strong trend down (dark red) |
+  | 0, ±1 | range (grey) | unclear (no color) | unclear (no color) |
+
+  - A low ER wins over a +2 score: the ER sees the last 10 bars, while the swings behind the score can be much older. A choppy last 10 minutes is a range even inside an old uptrend.
+  - An efficient move without a clean structure (score 0 or ±1, ER high) is left uncolored: often the turn from one trend to the next, and calling it either way would be a guess.
+  - Missing score or ER (warming up): no color.
+- **Opening thresholds 0.3 and 0.6,** the usual reading of Kaufman's ratio; each moves in steps of 0.05 and stops at the other. On 4 Feb 2026's 1 min chart about half the bars are at or below 0.3 and 15 % at or above 0.6.
+- **The page computes nothing:** the score and the ER come from C++ (D48, D57); the page only compares the ER with the two thresholds. The ER also has its own pane (0-1) with the two lines.
+- **The 10 development days in the hub:** `research/export_days.sh` exports each day with the baseline's fills and the structure at c = 1.5 and 2 only (the defaults, D48), about 13 MB a day. `export_hub.sh` now writes its charts to one folder per day, so days never overwrite each other.
+- **Next:** the thresholds picked here go into the signal study as round 3 (structure + ER), on the 10 days.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -867,8 +887,9 @@ research/.venv/bin/python research/bootstrap.py data/sim/ci/naive_0us.csv data/s
 # every milestone 5 number in docs/RESULTS.md: 7 runs in parallel + bootstrap tables
 research/run_m5.sh data/itch/12302019.NASDAQ_ITCH50   # writes data/sim/m5/
 
-# the hub (D46, D50): export a day (charts for every c + the milestone 5 fills), then open http://127.0.0.1:5174
+# the hub (D46, D50, D58): export a day (charts for every c + the milestone 5 fills), then open http://127.0.0.1:5174
 research/export_hub.sh data/itch/12302019.AAPL.ITCH50 2019-12-30 AAPL
+research/export_days.sh AAPL 2026   # the 10 development days: charts, structure at c = 1.5 and 2, baseline fills (D58)
 (cd hub/web && npm install && npm test && npm run dev)
 
 # signal study (D47): flagged fills vs the rest, per signal, 18 tests counted

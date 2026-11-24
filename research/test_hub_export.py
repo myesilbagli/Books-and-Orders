@@ -58,6 +58,20 @@ class ReadChart(unittest.TestCase):
         self.assertEqual(m["structure"], -2)  # an integer: -2, -1, 0, 1, 2
         self.assertIsNone(s["structure"])
 
+    # The efficiency ratio (D57) is the last column; a chart written before it reads as null.
+    def test_reads_the_efficiency_ratio(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = write(d, "chart.csv", CHART_HEADER.rstrip("\n") + ",er\n" +
+                         "1m,09:00:00,287.0000,287.1000,286.9000,287.0500,900,"
+                         ",,,,,,,,,,,,0.457\n"
+                         "1m,09:01:00,287.0000,287.1000,286.9000,287.0500,900,,,,,,,,,,,,\n")
+            chart = hx.read_chart(path, MIDNIGHT)
+            old = write(d, "old.csv", CHART_HEADER +
+                        "1m,09:00:00,287.0000,287.1000,286.9000,287.0500,900,,,,,,,,,,,,\n")
+            before = hx.read_chart(old, MIDNIGHT)
+        self.assertEqual([b["er"] for b in chart["1m"]], [0.457, None])  # empty: warming up
+        self.assertIsNone(before["1m"][0]["er"])
+
 
 class ReadFills(unittest.TestCase):
     # Bought 100 at 1.0000 (10'000 ticks). Mid 1.0005 before; 0.9990 1 s later, 1.0010 at

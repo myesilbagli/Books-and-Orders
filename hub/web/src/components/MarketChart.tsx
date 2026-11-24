@@ -6,6 +6,7 @@ import {
   LineSeries,
   LineStyle,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
   type MouseEventParams,
@@ -15,6 +16,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fillsInBar, toMarkers, type FillGroup } from '../lib/fills';
 import { candles, line } from '../lib/series';
+import { regime, regimeBackground, type Regime } from '../lib/regime';
 import { background, scoresAtBars, swingMarkers, zigzag } from '../lib/structure';
 import type { Bar, Horizon, Structure, Timeframe } from '../lib/types';
 import Legend from './Legend';
@@ -26,6 +28,9 @@ interface Props {
   horizon: Horizon;
   showBands: boolean;
   structure: Structure | null; // null: not shown
+  showRegime: boolean; // shade by structure + ER (D58) instead of structure alone
+  erLow: number; // ER at or below: range
+  erHigh: number; // ER at or above, in a +-2 structure: strong trend
 }
 
 // Everything the chart draws. Kept in a ref, not in state: the chart library owns these
@@ -42,11 +47,15 @@ interface Handles {
   bbLower: ISeriesApi<'Line'>;
   stochK: ISeriesApi<'Line'>;
   stochD: ISeriesApi<'Line'>;
+  er: ISeriesApi<'Line'>;
+  erLow: IPriceLine; // the two thresholds, moved by the sliders
+  erHigh: IPriceLine;
   markers: ISeriesMarkersPluginApi<Time>; // the library types it by its general Time
 }
 
 const thin = { lineWidth: 1, priceLineVisible: false, lastValueVisible: false } as const;
 const STOCH_PANE = 1; // below the price chart, sharing its time axis
+const ER_PANE = 2;
 
 export default function MarketChart(props: Props) {
   const container = useRef<HTMLDivElement>(null);
@@ -76,6 +85,11 @@ export default function MarketChart(props: Props) {
       wickUpColor: '#16a34a', wickDownColor: '#dc2626',
       priceFormat: { type: 'price', precision: 3, minMove: 0.0005 },
     });
+    // Panes are made in order: a series for pane 2 before pane 1 exists would land in pane 1.
+    const stochK = chart.addSeries(LineSeries, { ...thin, color: '#3b82f6' }, STOCH_PANE);
+    const stochD = chart.addSeries(LineSeries, { ...thin, color: '#f59e0b' }, STOCH_PANE);
+    const erSeries = chart.addSeries(LineSeries, { ...thin, color: '#0f766e', lineWidth: 2 }, ER_PANE);
+    const threshold = { color: '#9ca3af', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true } as const;
     const h: Handles = {
       chart,
       shade,
@@ -86,8 +100,11 @@ export default function MarketChart(props: Props) {
       vwap: chart.addSeries(LineSeries, { ...thin, color: '#a855f7', lineWidth: 2, lineStyle: LineStyle.Dashed }),
       bbUpper: chart.addSeries(LineSeries, { ...thin, color: '#9ca3af' }),
       bbLower: chart.addSeries(LineSeries, { ...thin, color: '#9ca3af' }),
-      stochK: chart.addSeries(LineSeries, { ...thin, color: '#3b82f6' }, STOCH_PANE),
-      stochD: chart.addSeries(LineSeries, { ...thin, color: '#f59e0b' }, STOCH_PANE),
+      stochK,
+      stochD,
+      er: erSeries,
+      erLow: erSeries.createPriceLine({ ...threshold, price: 0.3 }),
+      erHigh: erSeries.createPriceLine({ ...threshold, price: 0.6 }),
       markers: createSeriesMarkers(candleSeries, []),
     };
     // Stoch RSI lives on 0-100 with the usual 20 / 80 lines; a fixed scale keeps those
@@ -100,7 +117,13 @@ export default function MarketChart(props: Props) {
     for (const level of [20, 80]) {
       h.stochK.createPriceLine({ price: level, color: '#d1d5db', lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: true });
     }
-    chart.panes()[STOCH_PANE]?.setHeight(140);
+    // ER is 0-1 by construction: a fixed scale, like the Stoch RSI's.
+    h.er.applyOptions({ autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 1 } }) });
+    h.er.priceScale().applyOptions({ scaleMargins: { top: 0.05, bottom: 0.05 } });
+    // Shares of the height, not pixels: fixed heights set one by one squeeze each other
+    // (the last one set takes its room from the pane above it).
+    const shares = [0.64, 0.2, 0.16]; // price, Stoch RSI, ER
+    chart.panes().forEach((pane, i) => pane.setStretchFactor(shares[i] ?? 0.1));
 
     const onMove = (p: MouseEventParams) => setHovered(typeof p.time === 'number' ? p.time : null);
     chart.subscribeCrosshairMove(onMove);
@@ -124,6 +147,7 @@ export default function MarketChart(props: Props) {
     h.bbLower.setData(line(props.bars, 'bb_lower'));
     h.stochK.setData(line(props.bars, 'stoch_k'));
     h.stochD.setData(line(props.bars, 'stoch_d'));
+    h.er.setData(line(props.bars, 'er'));
     const seconds = props.timeframe === '1s' || props.timeframe === '15s';
     h.chart.applyOptions({ timeScale: { secondsVisible: seconds } });
     if (seconds) {
@@ -142,9 +166,18 @@ export default function MarketChart(props: Props) {
   useEffect(() => {
     const h = handles.current;
     if (!h) return;
-    h.shade.setData(props.structure ? background(props.bars, props.structure.scores) : []);
-    h.zigzag.setData(props.structure ? zigzag(props.structure.swings) : []);
-  }, [props.bars, props.structure]);
+    const s = props.structure;
+    h.shade.setData(
+      !s ? [] : props.showRegime ? regimeBackground(props.bars, s.scores, props.erLow, props.erHigh) : background(props.bars, s.scores),
+    );
+    h.zigzag.setData(s ? zigzag(s.swings) : []);
+  }, [props.bars, props.structure, props.showRegime, props.erLow, props.erHigh]);
+
+  // The threshold lines follow the sliders.
+  useEffect(() => {
+    handles.current?.erLow.applyOptions({ price: props.erLow });
+    handles.current?.erHigh.applyOptions({ price: props.erHigh });
+  }, [props.erLow, props.erHigh]);
 
   // One marker list for the candles: fills and swing labels, in time order.
   useEffect(() => {
@@ -168,13 +201,17 @@ export default function MarketChart(props: Props) {
 
   const bar = hovered === null ? null : (byTime.get(hovered) ?? null);
   const groups = hovered === null ? [] : fillsInBar(props.groups, hovered);
+  const score = scoreByTime && hovered !== null ? (scoreByTime.get(hovered) ?? null) : undefined;
+  const state: Regime | undefined =
+    props.showRegime && score !== undefined && bar ? regime(score, bar.er, props.erLow, props.erHigh) : undefined;
   return (
     <div className="chart-area">
       <Legend
         bar={bar}
         groups={groups}
         horizon={props.horizon}
-        score={scoreByTime && hovered !== null ? (scoreByTime.get(hovered) ?? null) : undefined}
+        score={score}
+        regime={state}
       />
       <div ref={container} className="chart" />
     </div>

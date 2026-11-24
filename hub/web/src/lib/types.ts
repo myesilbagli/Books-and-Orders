@@ -21,6 +21,7 @@ export interface Bar {
   stoch_d: number | null;
   atr: number | null; // dollars
   structure: number | null; // at c = 2; the hub uses the chosen c's file instead
+  er: number | null; // efficiency ratio over 10 bars, 0-1 (D57)
 }
 
 export type Horizon = '1s' | '10s' | '60s';

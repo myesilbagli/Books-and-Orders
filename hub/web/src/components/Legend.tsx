@@ -1,5 +1,6 @@
 import type { FillGroup } from '../lib/fills';
 import { markerColor } from '../lib/fills';
+import { REGIME_NAMES, type Regime } from '../lib/regime';
 import type { Bar, Horizon } from '../lib/types';
 
 // The values of the bar under the mouse, and our fills in it. Everything as exported:
@@ -19,6 +20,7 @@ export default function Legend(props: {
   groups: FillGroup[];
   horizon: Horizon;
   score: number | null | undefined; // undefined: structure not shown
+  regime: Regime | undefined; // undefined: regime shading off
 }) {
   const b = props.bar;
   if (!b) return <div className="legend">Move over the chart to see a bar.</div>;
@@ -37,11 +39,13 @@ export default function Legend(props: {
         Stoch {n(b.stoch_k)} / {n(b.stoch_d)}
       </span>
       <span>ATR {n(b.atr, 3)}</span>
+      <span className="er">ER {n(b.er, 3)}</span>
       {props.score !== undefined && (
         <span className="structure">
           Structure {props.score === null ? '–' : `${STATE[String(props.score)] ?? 'range'} (${props.score})`}
         </span>
       )}
+      {props.regime !== undefined && <span className="regime">Regime: {REGIME_NAMES[props.regime]}</span>}
       {props.groups.map((g) => (
         <span key={g.side} style={{ color: markerColor(g.markout) }}>
           {g.side === 'B' ? 'bought' : 'sold'} {g.shares} ({g.fills} {g.fills === 1 ? 'fill' : 'fills'}) · {g.markout.toFixed(2)} ¢ at {props.horizon}
