@@ -881,7 +881,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **One execution fills at most its own size:** the aggressor reaches our better prices first, so those fill first, and each executed share fills one of ours at most.
 - **Why the simulator builds the ladder, not the strategy:** every strategy (naive, Avellaneda-Stoikov, the pull rule, a later trend rule) gets it unchanged, and `levels = 1` is the old simulator: the milestone 5 runs and the 10-day baseline come out byte-identical (fills CSVs, reports and bootstrap tables; only the run time line changes).
 - **Data structure:** one `QuoteSide` per level in a `std::vector`, at most 8 (`kMaxLevels`); the per-message bookkeeping uses `std::array<bool, 8>` on the stack, so nothing is allocated on the hot path. A handful of orders, so a linear scan beats a map.
-- **Compared paired:** `research/compare_runs.py` takes other runs minus a base run, cents a share within each day, with the signal study's stratified block bootstrap (D56): the same 5 min blocks for both runs. Plus shares traded and the share filled as the level broke. Exploration (D55): expectations written before the run, results in the private log; 2 primary tests.
+- **Compared paired:** `research/compare_runs.py` takes other runs minus a base run, cents a share within each day, with the signal study's stratified block bootstrap (D56): the same 5 min blocks for both runs. Plus shares traded and the share filled as the level broke. Exploration (D55): expectations written before the run, results in the private log; 2 primary tests at 0 µs, 1 more at 50 µs (`LATENCY_US`), where a ladder already queued at the next level might have offset arriving late.
 
 ## Build
 
@@ -929,6 +929,7 @@ research/.venv/bin/python research/dbn_to_itch.py data/databento/AAPL_20191230_X
 research/convert_days.sh AAPL 2026   # every downloaded day: convert (skips done ones) + replay check (D54)
 research/run_days.sh AAPL 2026   # baseline on every converted day, one line per day (D55): data/sim/days/AAPL/
 research/run_days.sh AAPL 2026 data/sim/days ladder2_0us --levels 2   # any run by name, with mm_sim options (D60)
+LATENCY_US=50 research/run_days.sh AAPL 2026 data/sim/days ladder2_50us --levels 2   # the same with 50 µs latency
 research/.venv/bin/python research/compare_runs.py naive_0us ladder2_0us ladder3_0us   # runs vs a base, paired by day and block (D60)
 research/.venv/bin/python research/pick_days.py   # the development and hold-out days (D53)
 

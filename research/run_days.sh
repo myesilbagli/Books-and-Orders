@@ -3,6 +3,7 @@
 #
 #   research/run_days.sh AAPL 2026                                    # the baseline: naive, 0 µs
 #   research/run_days.sh AAPL 2026 data/sim/days ladder2_0us --levels 2   # [out_dir] [run name] [mm_sim options]
+#   LATENCY_US=50 research/run_days.sh AAPL 2026 data/sim/days naive_50us   # latency in µs, default 0
 #
 # Date prefix: 2026, 202607, 20260204.
 #
@@ -21,6 +22,7 @@ prefix="$2"
 out="${3:-data/sim/days}"
 run="${4:-naive_0us}"
 options=("${@:5}")  # everything after the run name goes to mm_sim as is
+latency_us="${LATENCY_US:-0}"
 sim=./build/release/cpp/mm_sim
 python=research/.venv/bin/python
 
@@ -33,7 +35,7 @@ for itch in data/itch/"${prefix}"*."${symbol}".dbn.ITCH50; do
   dir="$out/$symbol/$day"
   mkdir -p "$dir"
   # ${options[@]+...}: expands to nothing when there are no options (set -u would object).
-  "$sim" "$itch" "$symbol" 0 "$dir/$run.csv" ${options[@]+"${options[@]}"} >"$dir/$run.txt" &
+  "$sim" "$itch" "$symbol" "$latency_us" "$dir/$run.csv" ${options[@]+"${options[@]}"} >"$dir/$run.txt" &
   pids+=($!)
   reports+=("$dir/$run.txt")
 done
