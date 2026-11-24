@@ -17,3 +17,10 @@ export function line(bars: Bar[], key: LineKey): (LineData<UTCTimestamp> | White
     return value === null ? { time: b.time as UTCTimestamp } : { time: b.time as UTCTimestamp, value };
   });
 }
+
+// The whole day the bars cover, first bar to last. The chart opens on it after every day or
+// timeframe switch, anchored to the bars themselves, so nothing else can pull the view away.
+export function dayRange(bars: { time: number }[]): { from: UTCTimestamp; to: UTCTimestamp } | null {
+  if (bars.length === 0) return null;
+  return { from: bars[0].time as UTCTimestamp, to: bars[bars.length - 1].time as UTCTimestamp };
+}

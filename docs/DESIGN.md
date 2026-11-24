@@ -854,6 +854,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Opening thresholds 0.3 and 0.6,** the usual reading of Kaufman's ratio; each moves in steps of 0.05 and stops at the other. On 4 Feb 2026's 1 min chart about half the bars are at or below 0.3 and 15 % at or above 0.6.
 - **The page computes nothing:** the score and the ER come from C++ (D48, D57); the page only compares the ER with the two thresholds. The ER also has its own pane (0-1) with the two lines.
 - **The 10 development days in the hub:** `research/export_days.sh` exports each day with the baseline's fills and the structure at c = 1.5 and 2 only (the defaults, D48), about 13 MB a day. `export_hub.sh` now writes its charts to one folder per day, so days never overwrite each other.
+- **Every switch opens on the full day** (09:00-16:00, also for 1 s bars), anchored to the bars themselves; a Full day button goes back after zooming. Each loaded file remembers the day, timeframe and c it was for, and the chart only gets files that match the current choice: one stale file (the last day's ZigZag) used to stretch the time axis over two days and push the new bars off screen.
 - **Next:** the thresholds picked here go into the signal study as round 3 (structure + ER), on the 10 days.
 
 ## Build

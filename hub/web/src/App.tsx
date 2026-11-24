@@ -4,6 +4,12 @@ import { groupFills, summarize } from './lib/fills';
 import { loadChart, loadFills, loadIndex, loadStructure } from './lib/data';
 import type { Bar, Fill, Horizon, Index, Structure, Timeframe } from './lib/types';
 
+// A file as loaded, with what it was loaded for, e.g. '2026-02-04_AAPL/1m'.
+interface Loaded<T> {
+  key: string;
+  data: T;
+}
+
 const INTERVAL: Record<Timeframe, number> = { '1s': 1, '15s': 15, '1m': 60, '5m': 300 };
 
 export default function App() {
@@ -16,14 +22,18 @@ export default function App() {
   const [showFills, setShowFills] = useState(false);
   const [showStructure, setShowStructure] = useState(true);
   const [c, setC] = useState('2');
-  const [structure, setStructure] = useState<Structure | null>(null);
+  // Each load remembers what it was for (day, timeframe, c). The chart only gets data that
+  // matches the current choice: one stale file (the last day's ZigZag) would stretch the time
+  // axis over two days and push the new bars off screen.
+  const [structure, setStructure] = useState<Loaded<Structure> | null>(null);
   const [showBands, setShowBands] = useState(false);
   // Trend vs range from structure + ER (D58); the founder moves the two lines by eye.
   const [showRegime, setShowRegime] = useState(true);
   const [erLow, setErLow] = useState(0.3);
   const [erHigh, setErHigh] = useState(0.6);
-  const [bars, setBars] = useState<Bar[]>([]);
-  const [fills, setFills] = useState<Fill[]>([]);
+  const [bars, setBars] = useState<Loaded<Bar[]> | null>(null);
+  const [fills, setFills] = useState<Loaded<Fill[]> | null>(null);
+  const [fit, setFit] = useState(0); // bumped by the Full day button
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -43,7 +53,7 @@ export default function App() {
     if (!dayId) return;
     let current = true; // ignore a slow answer that arrives after the user switched again
     loadChart(dayId, timeframe)
-      .then((b) => current && setBars(b))
+      .then((b) => current && setBars({ key: `${dayId}/${timeframe}`, data: b }))
       .catch((e: Error) => setError(e.message));
     return () => {
       current = false;
@@ -54,7 +64,7 @@ export default function App() {
     if (!dayId || !run) return;
     let current = true;
     loadFills(dayId, run)
-      .then((f) => current && setFills(f))
+      .then((f) => current && setFills({ key: `${dayId}/${run}`, data: f }))
       .catch((e: Error) => setError(e.message));
     return () => {
       current = false;
@@ -68,16 +78,25 @@ export default function App() {
     }
     let current = true;
     loadStructure(dayId, timeframe, c)
-      .then((s) => current && setStructure(s))
+      .then((s) => current && setStructure({ key: `${dayId}/${timeframe}/${c}`, data: s }))
       .catch((e: Error) => setError(e.message));
     return () => {
       current = false;
     };
   }, [dayId, timeframe, c, showStructure]);
 
+  // Until the new bars arrive the old ones stay up, but with nothing else of either day on them.
+  const barsReady = bars?.key === `${dayId}/${timeframe}`;
+  const shownFills = useMemo(
+    () => (barsReady && fills?.key === `${dayId}/${run}` ? fills.data : []),
+    [barsReady, fills, dayId, run],
+  );
+  const shownStructure =
+    showStructure && barsReady && structure?.key === `${dayId}/${timeframe}/${c}` ? structure.data : null;
+
   // Recomputed only when its inputs change, not on every mouse move over the chart.
-  const groups = useMemo(() => groupFills(fills, INTERVAL[timeframe], horizon), [fills, timeframe, horizon]);
-  const summary = useMemo(() => summarize(fills, horizon), [fills, horizon]);
+  const groups = useMemo(() => groupFills(shownFills, INTERVAL[timeframe], horizon), [shownFills, timeframe, horizon]);
+  const summary = useMemo(() => summarize(shownFills, horizon), [shownFills, horizon]);
   const day = index?.days.find((d) => d.id === dayId);
 
   return (
@@ -135,6 +154,9 @@ export default function App() {
             <Slider label="trend ≥" value={erHigh} onChange={(v) => setErHigh(Math.max(v, erLow))} />
           </>
         )}
+        <button className="fit" onClick={() => setFit((n) => n + 1)}>
+          Full day
+        </button>
         <span className="summary">
           {summary.fills.toLocaleString()} fills · {summary.shares.toLocaleString()} shares ·{' '}
           {summary.markout === null ? '–' : `${summary.markout.toFixed(2)} ¢/share`} at {horizon}
@@ -142,12 +164,13 @@ export default function App() {
       </header>
       {error && <p className="error">{error}</p>}
       <MarketChart
-        bars={bars}
+        bars={bars?.data ?? []}
+        fit={fit}
         groups={showFills ? groups : []}
         timeframe={timeframe}
         horizon={horizon}
         showBands={showBands}
-        structure={showStructure ? structure : null}
+        structure={shownStructure}
         showRegime={showRegime}
         erLow={erLow}
         erHigh={erHigh}

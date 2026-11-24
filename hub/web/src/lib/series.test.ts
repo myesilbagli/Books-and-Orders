@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { candles, line } from './series';
+import { candles, dayRange, line } from './series';
 import type { Bar } from './types';
 
 function bar(time: number, close: number, ema: number | null): Bar {
@@ -24,5 +24,16 @@ describe('line', () => {
 describe('candles', () => {
   it('keeps open, high, low and close', () => {
     expect(candles([bar(1, 10, null)])).toEqual([{ time: 1, open: 10, high: 10, low: 10, close: 10 }]);
+  });
+});
+
+describe('dayRange', () => {
+  // The whole day the bars cover, first bar to last: what the chart opens on after a switch.
+  it('spans the first bar to the last', () => {
+    expect(dayRange([bar(100, 10, null), bar(160, 11, null), bar(220, 12, null)])).toEqual({ from: 100, to: 220 });
+  });
+
+  it('is null with no bars yet', () => {
+    expect(dayRange([])).toBeNull();
   });
 });

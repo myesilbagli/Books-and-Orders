@@ -11,11 +11,10 @@ import {
   type ISeriesMarkersPluginApi,
   type MouseEventParams,
   type Time,
-  type UTCTimestamp,
 } from 'lightweight-charts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fillsInBar, toMarkers, type FillGroup } from '../lib/fills';
-import { candles, line } from '../lib/series';
+import { candles, dayRange, line } from '../lib/series';
 import { regime, regimeBackground, type Regime } from '../lib/regime';
 import { background, scoresAtBars, swingMarkers, zigzag } from '../lib/structure';
 import type { Bar, Horizon, Structure, Timeframe } from '../lib/types';
@@ -23,6 +22,7 @@ import Legend from './Legend';
 
 interface Props {
   bars: Bar[];
+  fit: number; // changes when the Full day button is pressed
   groups: FillGroup[];
   timeframe: Timeframe;
   horizon: Horizon;
@@ -57,6 +57,12 @@ const thin = { lineWidth: 1, priceLineVisible: false, lastValueVisible: false } 
 const STOCH_PANE = 1; // below the price chart, sharing its time axis
 const ER_PANE = 2;
 
+// Every day and timeframe opens on the whole day, so a switch never leaves the bars off screen.
+function showDay(chart: IChartApi, bars: Bar[]) {
+  const range = dayRange(bars);
+  if (range) chart.timeScale().setVisibleRange(range);
+}
+
 export default function MarketChart(props: Props) {
   const container = useRef<HTMLDivElement>(null);
   const handles = useRef<Handles | null>(null);
@@ -72,7 +78,8 @@ export default function MarketChart(props: Props) {
       autoSize: true,
       layout: { background: { color: '#ffffff' }, textColor: '#374151', panes: { separatorColor: '#e5e7eb' } },
       grid: { vertLines: { color: '#f3f4f6' }, horzLines: { color: '#f3f4f6' } },
-      timeScale: { timeVisible: true, secondsVisible: true },
+      // A full day of 1 s bars is 25 K bars: let them shrink below a pixel each to fit.
+      timeScale: { timeVisible: true, secondsVisible: true, minBarSpacing: 0.01 },
     });
     // Added first, so it is drawn behind everything: the structure shading, on its own
     // hidden 0-1 scale that fills the pane's full height.
@@ -148,19 +155,14 @@ export default function MarketChart(props: Props) {
     h.stochK.setData(line(props.bars, 'stoch_k'));
     h.stochD.setData(line(props.bars, 'stoch_d'));
     h.er.setData(line(props.bars, 'er'));
-    const seconds = props.timeframe === '1s' || props.timeframe === '15s';
-    h.chart.applyOptions({ timeScale: { secondsVisible: seconds } });
-    if (seconds) {
-      // Too many bars for one screen: open on the start of quoting, 10 minutes of 1 s bars
-      // or an hour of 15 s bars.
-      const midnight = Math.floor(props.bars[0].time / 86_400) * 86_400;
-      const from = midnight + 9 * 3600 + 31 * 60;
-      const span = props.timeframe === '1s' ? 600 : 3600;
-      h.chart.timeScale().setVisibleRange({ from: from as UTCTimestamp, to: (from + span) as UTCTimestamp });
-    } else {
-      h.chart.timeScale().fitContent();
-    }
+    h.chart.applyOptions({ timeScale: { secondsVisible: props.timeframe === '1s' || props.timeframe === '15s' } });
+    showDay(h.chart, props.bars);
   }, [props.bars, props.timeframe]);
+
+  // The Full day button: back to the whole day after zooming in.
+  useEffect(() => {
+    if (handles.current && props.fit > 0) showDay(handles.current.chart, props.bars);
+  }, [props.fit]); // only on a press: new bars already open on the full day above
 
   // Structure: shading and ZigZag line, redrawn when the bars or the structure change.
   useEffect(() => {
