@@ -58,6 +58,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Signal study over several days: within-day difference, stratified bootstrap, days worse (6d-2) | `research/signal_study.py` (`study_days`) | done, D56 |
 | Efficiency ratio (10 bars) on every chart, every fill, both CSVs (6e-1) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/src/sim/chart_feed.cpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/src/sim/fills_csv.cpp` | done, D57 |
 | Hub: the 10 development days, ER pane, trend/range shading from structure + ER with two threshold sliders (6e-2) | `hub/web/src/lib/regime.ts`, `hub/web/src/components/MarketChart.tsx`, `hub/web/src/App.tsx`, `research/export_days.sh`, `research/export_hub.sh`, `research/hub_export.py` | done, D58 |
+| Where the loss comes from: queue (level broke) and trend (hindsight leg, confirmed leg, structure, strong trend), round 7a | `research/fill_anatomy.py`, `research/test_fill_anatomy.py` | done, D59 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -857,6 +858,17 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Every switch opens on the full day** (09:00-16:00, also for 1 s bars), anchored to the bars themselves; a Full day button goes back after zooming. Each loaded file remembers the day, timeframe and c it was for, and the chart only gets files that match the current choice: one stale file (the last day's ZigZag) used to stretch the time axis over two days and push the new bars off screen.
 - **Next:** the thresholds picked here go into the signal study as round 3 (structure + ER), on the 10 days.
 
+### D59. Before building a better trend read: how much could a perfect one be worth? (round 7a)
+
+- **Why:** the founder's question (24 Nov 2026): if the trend were identified very well, would it cut adverse selection? Answer it before spending more on the trend read. And separately: we always join the back of the queue, so we fill mostly when the whole level breaks. Is that a second, separate loss?
+- **An oracle sets the ceiling:** a ZigZag leg drawn with hindsight (1 min, c = 1.5): each fill is on an up leg or a down leg, as a chart drawn after the close shows it. It uses the future, so it is never a strategy; it bounds what any trend read at this swing size could do. If even it doesn't help, no real-time read will.
+  - Not "the price 1 s later": that would be the adverse move itself, not the trend.
+  - Fills inside a turning bar (before or after the extreme?) and after the last swing (its leg never finished) are left out.
+- **The same swings in real time:** the leg since the last *confirmed* swing. Oracle minus confirmed = what the confirmation lag costs, with nothing else changed.
+- **Five splits, each flagged vs rest with the signal study's machinery (D56):** level broke (nothing left at our price as we filled), oracle leg, confirmed leg, 1 min structure (round 2's A), strong trend (±2 with ER 1m ≥ 0.6, the hub's opening threshold). Plus a cross table, level broke × oracle leg, to see whether the queue loss is the trend loss in disguise.
+- **Exploration (D55):** questions and expectations written before the run, results in the private log; 5 primary tests, 30 in all.
+- **What it decides:** whether the next step is a ladder (more fills while the level holds, 7b-1), a trend strategy, or a faster trend read.
+
 ## Build
 
 - CMake presets: `debug` (ASan + UBSan, `-Wall -Wextra -Wpedantic -Werror` on our targets) and `release` (benchmarks).
@@ -896,6 +908,7 @@ research/export_days.sh AAPL 2026   # the 10 development days: charts, structure
 # signal study (D47): flagged fills vs the rest, per signal, 18 tests counted
 research/.venv/bin/python research/signal_study.py data/sim/m5/naive_0us.csv --round 2   # --round 1: EMA trend and VWAP
 research/.venv/bin/python research/signal_study.py data/sim/days/AAPL/*/naive_0us.csv --round 2   # several days (D56)
+research/.venv/bin/python research/fill_anatomy.py data/sim/days/AAPL/*/naive_0us.csv   # queue and trend, oracle vs real time (D59); needs export_days.sh
 
 # any day from Databento (D52): MBO for one stock -> ITCH 5.0, then every tool runs on it
 research/.venv/bin/python research/dbn_to_itch.py data/databento/AAPL_20191230_XNAS_mbo.dbn.zst AAPL data/itch/20191230.AAPL.dbn.ITCH50
