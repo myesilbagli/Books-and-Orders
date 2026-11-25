@@ -36,11 +36,18 @@ class HeldRead {
 struct FailedBreakoutSettings {
   double max_poke_atr = 0.25;   // a poke past the level is at most a quarter of an ATR...
   std::size_t back_within = 2;  // ...and a bar closes back within the next 2 bars
+  // Calibrated (D63): the poke is a new high (low) of the last 8 bars, 2 minutes on 15 s
+  // bars, and only at swing and day highs and lows. Without these, a quarter of all bars
+  // "trapped" something: the price wandering around round prices, VWAP and the EMA.
+  std::size_t new_extreme_bars = 8;
+  std::vector<LevelKind> kinds = {LevelKind::SwingHigh, LevelKind::SwingLow,
+                                  LevelKind::DayHigh, LevelKind::DayLow};
   std::uint64_t hold_ns = kReadHoldNs;  // the read lasts 45 s after its bar ends
 };
 
-// B1, the failed breakout (a trap). A bar opens on one side of a level and pokes past it by
-// a little; that bar or one of the next two closes back on the first side. The breakout
+// B1, the failed breakout (a trap). A bar opens on one side of a swing or day high (low),
+// makes a new high (low) of the last 2 minutes and pokes past the level by a little; that
+// bar or one of the next two closes back on the first side. The breakout
 // traders are trapped, and the price should run the other way: against the poke.
 //
 // Example, a level at $276.40 and a 1 min ATR of 35 c (a poke of at most 8.75 c):
@@ -69,8 +76,11 @@ class FailedBreakout {
     std::size_t bars_left;  // bars after the poke that may still close back
   };
 
+  int read_bar(const Bar& bar, const std::vector<Level>& levels, std::optional<double> atr);
+
   FailedBreakoutSettings settings_;
   std::vector<Poke> pokes_;
+  std::deque<Bar> recent_;  // the last new_extreme_bars bars before this one
   HeldRead held_;
 };
 
@@ -80,7 +90,9 @@ int ema_stack(const ChartPoint& point);
 
 struct PullbackEndSettings {
   std::size_t lookback = 4;      // the bar's low is the lowest of the last 4 (a 1 min dip)
-  double touch_atr = 0.1;        // and within a tenth of an ATR of the EMA 20 or VWAP
+  // and within a fifth of an ATR of the EMA 20 or VWAP (calibrated, D63: a tenth let
+  // through about 9 reads a day; a fifth is still well inside a 15 s bar's range)
+  double touch_atr = 0.2;
   double close_in_end = 1.0 / 3;  // it closes in its top third (bottom, in a downtrend)
   std::uint64_t hold_ns = kReadHoldNs;
 };
@@ -90,7 +102,7 @@ struct PullbackEndSettings {
 // with the trend there. Read: with the trend.
 //
 // Example, an uptrend on the 1 min chart, its EMA 20 at $276.20, a 1 min ATR of 35 c
-// (a touch is within 3.5 c):
+// (a touch is within 7 c):
 //   bars 0-2   lows 276.40, 276.32, 276.26            the pullback
 //   bar 3      open 276.26 high 276.32 low 276.21 close 276.30
 //              lowest of the 4, 1 c from the EMA, closes up, in its top third and above

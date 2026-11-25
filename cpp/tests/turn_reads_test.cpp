@@ -27,10 +27,22 @@ Bar bar(std::uint64_t i, Price open, Price high, Price low, Price close) {
 const std::vector<Level> kHigh = {Level{LevelKind::SwingHigh, 2'764'000}};
 constexpr double kAtr = 3'500;
 
-// Feeds bars in order, the same levels each time; returns what each one read.
+// A flat bar j of the 8 before 10:31:00 (j = 0 to 7): high = low = open, so it can't poke
+// anything, but it fills the 2 minutes of history a poke must break out of.
+Bar flat_before(std::uint64_t j, Price price) {
+  const std::uint64_t start = k1031 - (8 - j) * k15s;
+  return Bar{.start_ns = start, .end_ns = start + k15s, .open_x2 = 2 * price,
+             .high_x2 = 2 * price, .low_x2 = 2 * price, .close_x2 = 2 * price, .volume = 0};
+}
+
+// Feeds 8 flat bars at the first bar's open (unless warm is false), then the bars, the same
+// levels each time; returns what each of the bars (not the flat ones) read.
 std::vector<int> feed(FailedBreakout& b1, const std::vector<Bar>& bars,
                       const std::vector<Level>& levels = kHigh,
-                      std::optional<double> atr = kAtr) {
+                      std::optional<double> atr = kAtr, bool warm = true) {
+  for (std::uint64_t j = 0; warm && j < 8; ++j) {
+    b1.on_bar(flat_before(j, bars.front().open_x2 / 2), levels, atr);
+  }
   std::vector<int> reads;
   for (const Bar& b : bars) {
     reads.push_back(b1.on_bar(b, levels, atr));
@@ -70,7 +82,7 @@ TEST(FailedBreakoutTest, PokeAndCloseBackInOneBar) {
 // Mirror: a poke below a support that closes back above reads up.
 TEST(FailedBreakoutTest, FailedBreakdownReadsUp) {
   FailedBreakout b1;
-  const std::vector<Level> low = {Level{LevelKind::Vwap, 2'764'000}};
+  const std::vector<Level> low = {Level{LevelKind::SwingLow, 2'764'000}};
   EXPECT_EQ(feed(b1, {bar(0, 2'764'400, 2'764'500, 2'763'400, 2'763'600),
                       bar(1, 2'763'600, 2'764'300, 2'763'500, 2'764'200)}, low),
             (std::vector<int>{0, 1}));
@@ -122,16 +134,47 @@ TEST(FailedBreakoutTest, NothingWithoutAnAtr) {
 // another, closing between them) says nothing: the reads cancel.
 TEST(FailedBreakoutTest, TrapsBothWaysCancel) {
   FailedBreakout b1;
-  const std::vector<Level> both = {Level{LevelKind::Round, 2'760'000},
+  const std::vector<Level> both = {Level{LevelKind::DayLow, 2'760'000},
                                    Level{LevelKind::SwingHigh, 2'764'000}};
   EXPECT_EQ(feed(b1, {bar(0, 2'762'000, 2'764'500, 2'759'500, 2'762'000)}, both),
+            (std::vector<int>{0}));
+}
+
+// Calibrated (D63): only swing and day highs and lows are breakout levels. Round prices,
+// VWAP, the EMA and the day's open sit where the price wanders back and forth all day;
+// as B1 levels they made a "trap" of a quarter of all 15 s bars.
+TEST(FailedBreakoutTest, OnlySwingAndDayLevels) {
+  const Bar tail = bar(0, 2'763'600, 2'764'600, 2'763'500, 2'763'700);
+  for (const LevelKind kind :
+       {LevelKind::Round, LevelKind::Vwap, LevelKind::Ema, LevelKind::DayOpen}) {
+    FailedBreakout b1;
+    EXPECT_EQ(feed(b1, {tail}, {Level{kind, 2'764'000}}), (std::vector<int>{0}));
+  }
+  FailedBreakout day;
+  EXPECT_EQ(feed(day, {tail}, {Level{LevelKind::DayHigh, 2'764'000}}), (std::vector<int>{-1}));
+}
+
+// A breakout attempt is the price trying a new high (low): the poke must go past every bar
+// of the last 2 minutes. Here a bar 15 s earlier went higher (too far past the level to be
+// a poke itself), so the later small poke is a lower high, not an attempt.
+TEST(FailedBreakoutTest, MustBeANewTwoMinuteExtreme) {
+  FailedBreakout b1;
+  EXPECT_EQ(feed(b1, {bar(0, 2'763'600, 2'764'900, 2'763'400, 2'763'500),
+                      bar(1, 2'763'500, 2'764'600, 2'763'400, 2'763'700)}),
+            (std::vector<int>{0, 0}));
+}
+
+// Fewer than 8 bars seen: no 2 minutes to break out of yet.
+TEST(FailedBreakoutTest, NeedsTwoMinutesOfBars) {
+  FailedBreakout b1;
+  EXPECT_EQ(feed(b1, {bar(0, 2'763'600, 2'764'600, 2'763'500, 2'763'700)}, kHigh, kAtr, false),
             (std::vector<int>{0}));
 }
 
 // ---- B2, the pullback ends ----
 
 // The plan's example: an uptrend, the 1 min EMA 20 at $276.20, the same 35 c ATR (a touch
-// is within 350 ticks). Three bars pull back; the fourth dips to 1 c above the EMA and
+// is within a fifth of it, 700 ticks). Three bars pull back; the fourth dips to 1 c above the EMA and
 // closes up near its high.
 const std::vector<Level> kEma = {Level{LevelKind::Ema, 2'762'000}};
 std::vector<Bar> pullback(Price last_low = 2'762'100, Price last_close = 2'763'000) {
@@ -192,11 +235,14 @@ TEST(PullbackEndTest, NeedsFourBars) {
   EXPECT_EQ(feed(b2, {bars[2], bars[3]}), (std::vector<int>{0, 0}));
 }
 
-// 6 c above the EMA: more than a tenth of an ATR away, it didn't reach it.
+// 8 c above the EMA: more than a fifth of an ATR (7 c) away, it didn't reach it. 6 c does
+// (calibrated, D63: a tenth, 3.5 c, let through about 9 reads a day).
 TEST(PullbackEndTest, MustReachTheLevel) {
-  PullbackEnd b2;
-  EXPECT_EQ(feed(b2, pullback(), 1, {Level{LevelKind::Ema, 2'761'500}}),
+  PullbackEnd far;
+  EXPECT_EQ(feed(far, pullback(), 1, {Level{LevelKind::Ema, 2'761'300}}),
             (std::vector<int>{0, 0, 0, 0}));
+  PullbackEnd near;
+  EXPECT_EQ(feed(near, pullback(), 1, {Level{LevelKind::Ema, 2'761'500}}).back(), 1);
 }
 
 // Closing in the middle of its range is no turn.

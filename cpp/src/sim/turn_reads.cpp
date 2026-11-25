@@ -1,5 +1,6 @@
 #include "orderbook/sim/turn_reads.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <utility>
 
@@ -24,6 +25,17 @@ FailedBreakout::FailedBreakout(FailedBreakoutSettings settings)
 
 int FailedBreakout::on_bar(const Bar& bar, const std::vector<Level>& levels,
                            std::optional<double> atr) {
+  const int read = read_bar(bar, levels, atr);
+  recent_.push_back(bar);  // history counts every bar, read or not
+  while (recent_.size() > settings_.new_extreme_bars) {
+    recent_.pop_front();
+  }
+  held_.set(read, bar.end_ns);  // known only once the bar has closed
+  return read;
+}
+
+int FailedBreakout::read_bar(const Bar& bar, const std::vector<Level>& levels,
+                             std::optional<double> atr) {
   if (!atr || *atr <= 0.0) {
     pokes_.clear();  // no yardstick: nothing can be called small, so nothing is watched
     return 0;
@@ -54,17 +66,31 @@ int FailedBreakout::on_bar(const Bar& bar, const std::vector<Level>& levels,
     }
   }
 
+  // A breakout attempt goes past every bar of the last 2 minutes; with fewer bars seen there
+  // is nothing to break out of yet.
+  const bool full = recent_.size() >= settings_.new_extreme_bars;
+  bool new_high = full;
+  bool new_low = full;
+  for (const Bar& b : recent_) {
+    new_high = new_high && bar.high_x2 > b.high_x2;
+    new_low = new_low && bar.low_x2 < b.low_x2;
+  }
+
   // New pokes: the bar opened on one side (at the level counts) and went a little past.
   for (const Level& level : levels) {
+    if (std::find(settings_.kinds.begin(), settings_.kinds.end(), level.kind) ==
+        settings_.kinds.end()) {
+      continue;  // not a breakout level
+    }
     const double l = level.price;
-    if (open <= l && high > l && high - l <= max_poke) {
+    if (new_high && open <= l && high > l && high - l <= max_poke) {
       if (close < l) {
         reads_down = true;  // back below in the same bar: a long upper tail at the level
       } else if (settings_.back_within > 0) {
         waiting.push_back(Poke{l, +1, settings_.back_within});
       }
     }
-    if (open >= l && low < l && l - low <= max_poke) {
+    if (new_low && open >= l && low < l && l - low <= max_poke) {
       if (close > l) {
         reads_up = true;
       } else if (settings_.back_within > 0) {
@@ -75,9 +101,7 @@ int FailedBreakout::on_bar(const Bar& bar, const std::vector<Level>& levels,
   pokes_ = std::move(waiting);  // move: hand the vector over instead of copying it
 
   // Traps both ways in one bar say opposite things: no read.
-  const int read = reads_up == reads_down ? 0 : (reads_up ? 1 : -1);
-  held_.set(read, bar.end_ns);  // known only once the bar has closed
-  return read;
+  return reads_up == reads_down ? 0 : (reads_up ? 1 : -1);
 }
 
 int ema_stack(const ChartPoint& point) {
