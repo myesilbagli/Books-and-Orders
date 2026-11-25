@@ -64,6 +64,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Real-time reads placed on the delayed-oracle curve: equivalent lag, coverage, agreement with the hindsight leg (7d-1) | `research/turn_reads.py`, `research/test_turn_reads.py` | done, D62 |
 | Price levels for the turn reads: last swings, day open/high/low, VWAP, EMA 20, round 50 ¢; EMA 20 and 50 on every chart (7d-2, step 1) | `cpp/include/orderbook/sim/levels.hpp`, `cpp/src/sim/levels.cpp`, `cpp/include/orderbook/sim/chart_feed.hpp` | done, D63 |
 | B1, failed breakout at a level: poke ≤ ¼ ATR, close back within 2 bars, read held 45 s (7d-2, step 2) | `cpp/include/orderbook/sim/turn_reads.hpp`, `cpp/src/sim/turn_reads.cpp` | done, D63 |
+| B2, the pullback ends at the EMA 20 or VWAP with the 1 min EMA stack, read held 45 s (7d-2, step 3) | `cpp/include/orderbook/sim/turn_reads.hpp`, `cpp/src/sim/turn_reads.cpp` | done, D63 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -915,6 +916,12 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - Traps each way in the same bar cancel (no read). No ATR yet: no read.
   - The read starts when the completing bar ends (nothing earlier is known) and lasts 45 s; a newer trap replaces it.
   - Data structure: a short vector of pokes still waiting, rebuilt each bar. Rarely more than a few, so no index.
+- **Step 3, B2 (`PullbackEnd`):** fed each closed 15 s bar, the 1 min trend from its EMA stack (`ema_stack`: +1 when 9 > 20 > 50, −1 when 9 < 20 < 50, else 0), the same levels and ATR as B1.
+  - Uptrend (mirror for down): the bar's low is the lowest of the last 4 bars (a 1 min dip), within 0.1 ATR of the EMA 20 or VWAP, and the bar closes up (close > open), in the top third of its range and above that level. Read +1.
+  - Only the EMA and VWAP levels: a trend pulls back to its moving averages; swings and round prices are B1's.
+  - Fewer than 4 bars seen, no trend, or no ATR: no read. A bull bar in a downtrend is not B2 (that would be a counter-trend read).
+  - Not included yet: Brooks' "the pullback came on falling volume". Kept simple first; it can be added and compared.
+  - `HeldRead` holds any read for 45 s from the end of its bar; B1 and B2 share it.
 - **EMA 20 and 50 on every chart (`ema_mid`, `ema_long`):** added next to the existing 9 and 21, not replacing them, so every older output stays byte-identical. Brooks' EMA is the 20; the 50 completes the 9 / 20 / 50 stack.
 - **Exploration (D55):** descriptive, measured on the equivalent-lag scale (D62); expectations written before the run.
 
