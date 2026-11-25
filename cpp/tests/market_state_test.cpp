@@ -109,5 +109,41 @@ TEST(MarketStateTest, SwingSizePerTimeframe) {
   EXPECT_DOUBLE_EQ(MarketState(c).one_minute().structure().c(), 3.0);
 }
 
+// The turn reads run inside the market state, on its 15 s bars with the 1 min chart as
+// context (D63). A 1 min ATR of 2,000 ticks (bars swinging 1'002'000 to 1'004'000, ATR of
+// 2 bars here) allows a poke of 500. At 2:05 the mid pokes 200 above the round level
+// 1'005'000; the next 15 s bar closes back below it: B1 reads down from 2:30 for 45 s.
+TEST(MarketStateTest, ReadsAFailedBreakout) {
+  MarketStateConfig c{.from_ns = 0, .to_ns = 10 * kMinute, .vwap_from_ns = 0};
+  c.settings.structure.atr_n = 2;
+  MarketState m(c);
+  ClosedBars closed;
+  const auto mid = [&](std::uint64_t t, Price ticks) {
+    const ClosedBars got = m.advance(t);
+    closed.fifteen_seconds.insert(closed.fifteen_seconds.end(), got.fifteen_seconds.begin(),
+                                  got.fifteen_seconds.end());
+    m.on_mid(t, 2 * ticks);
+  };
+  mid(0, 1'004'000);
+  mid(20 * kSecond, 1'002'000);
+  mid(40 * kSecond, 1'004'000);
+  mid(80 * kSecond, 1'002'000);
+  mid(100 * kSecond, 1'004'000);
+  mid(125 * kSecond, 1'005'200);  // the poke
+  mid(140 * kSecond, 1'004'500);  // back below
+  mid(151 * kSecond, 1'004'500);  // closes the 2:15 bar
+  EXPECT_EQ(m.b1(150 * kSecond - 1), 0);
+  EXPECT_EQ(m.b1(150 * kSecond), -1);
+  EXPECT_EQ(m.b1(195 * kSecond), 0);  // 45 s later
+  EXPECT_EQ(m.b2(150 * kSecond), 0);  // no EMA stack yet: B2 can't read
+  // The 15 s bars carry what they completed: only the 2:15 bar read B1.
+  for (const ChartPoint& p : closed.fifteen_seconds) {
+    ASSERT_TRUE(p.b1);
+    EXPECT_EQ(*p.b1, p.bar.start_ns == 135 * kSecond ? -1 : 0) << p.bar.start_ns;
+    EXPECT_EQ(p.b2, 0);
+  }
+  EXPECT_EQ(closed.fifteen_seconds.size(), 10u);  // 0:00 to 2:30
+}
+
 }  // namespace
 }  // namespace ob::sim

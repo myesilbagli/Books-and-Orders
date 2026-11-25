@@ -57,7 +57,7 @@ void write_fills_csv(std::ostream& out, const std::vector<Fill>& fills,
          "touch_share,shares_left,"
          "ema_fast_1s,ema_slow_1s,sma_1s,bb_pct_1s,rsi_1s,stoch_k_1s,stoch_d_1s,"
          "ema_fast_1m,ema_slow_1m,sma_1m,bb_pct_1m,rsi_1m,stoch_k_1m,stoch_d_1m,vwap,"
-         "structure_1s,structure_15s,structure_1m,structure_5m,er_1s,er_15s,er_1m,er_5m\n";
+         "structure_1s,structure_15s,structure_1m,structure_5m,er_1s,er_15s,er_1m,er_5m,b1,b2\n";
   for (const Fill& f : fills) {
     out << f.timestamp_ns << ',' << (f.side == Side::Buy ? 'B' : 'S') << ',' << f.price << ','
         << f.quantity << ',' << f.mid_x2_before;
@@ -79,6 +79,7 @@ void write_fills_csv(std::ostream& out, const std::vector<Fill>& fills,
     write_er(out, f.chart_15s);
     write_er(out, f.chart_1m);
     write_er(out, f.chart_5m);
+    out << ',' << f.b1 << ',' << f.b2;  // the turn reads at the fill (D63)
     out << '\n';
   }
 }

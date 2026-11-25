@@ -65,6 +65,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Price levels for the turn reads: last swings, day open/high/low, VWAP, EMA 20, round 50 ¢; EMA 20 and 50 on every chart (7d-2, step 1) | `cpp/include/orderbook/sim/levels.hpp`, `cpp/src/sim/levels.cpp`, `cpp/include/orderbook/sim/chart_feed.hpp` | done, D63 |
 | B1, failed breakout at a level: poke ≤ ¼ ATR, close back within 2 bars, read held 45 s (7d-2, step 2) | `cpp/include/orderbook/sim/turn_reads.hpp`, `cpp/src/sim/turn_reads.cpp` | done, D63 |
 | B2, the pullback ends at the EMA 20 or VWAP with the 1 min EMA stack, read held 45 s (7d-2, step 3) | `cpp/include/orderbook/sim/turn_reads.hpp`, `cpp/src/sim/turn_reads.cpp` | done, D63 |
+| B1/B2 inside `MarketState` (15 s bars, 1 min context), on every fill (`b1`, `b2`) and every chart row (`ema_mid`, `ema_long`, `b1`, `b2`) (7d-2, step 4) | `cpp/src/sim/market_state.cpp`, `cpp/src/sim/simulator.cpp`, `cpp/src/sim/fills_csv.cpp`, `cpp/src/sim/chart_csv.cpp` | done, D63 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -922,6 +923,12 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - Fewer than 4 bars seen, no trend, or no ATR: no read. A bull bar in a downtrend is not B2 (that would be a counter-trend read).
   - Not included yet: Brooks' "the pullback came on falling volume". Kept simple first; it can be added and compared.
   - `HeldRead` holds any read for 45 s from the end of its bar; B1 and B2 share it.
+- **Step 4, wired in:** `MarketState` runs both reads on its 15 s bars, so the simulator, `chart_dump` and any strategy see the same reads (D42, D44).
+  - Each 15 s bar is read with the context as of its open: the levels, the 1 min ATR and the 1 min EMA stack, all built when the bar before it closed. Then the bar feeds the day's range (from 09:30, on 15 s bars so it is current to 15 s).
+  - One call can close several 15 s bars and a 1 min bar between them (a quiet stretch). They are walked in time order, so a 15 s bar's context only has the 1 min bars that had closed by its end; the 1 min swings known by then are a prefix of the swing list (they are added as they are confirmed), passed as a `std::span` without copying. VWAP is the one exception: it is the VWAP when the bars are handed out, which in a quiet stretch can include trades from the flat bars at its end.
+  - `on_trade` now closes the bars before counting the trade in the VWAP (a trade at a bar's end belongs to the next bar), so a bar closed there is read with the VWAP of the trades before it. No output changes: the VWAP is only read after the call.
+  - Fills CSV: `b1`, `b2` at the end, the reads in force at the fill (0 when none). Chart CSV: `ema_mid`, `ema_long` (dollars), `b1`, `b2` (what a 15 s bar completed; empty on other timeframes).
+  - Checked on a real day (4 Feb 2026, naive, 0 µs): every older column of all 39,219 fill rows and 27,385 chart rows, the swings file and the report are byte-identical (except the run time line).
 - **EMA 20 and 50 on every chart (`ema_mid`, `ema_long`):** added next to the existing 9 and 21, not replacing them, so every older output stays byte-identical. Brooks' EMA is the 20; the 50 completes the 9 / 20 / 50 stack.
 - **Exploration (D55):** descriptive, measured on the equivalent-lag scale (D62); expectations written before the run.
 

@@ -32,11 +32,11 @@ const char* const kHeader =
     "touch_share,shares_left,"
     "ema_fast_1s,ema_slow_1s,sma_1s,bb_pct_1s,rsi_1s,stoch_k_1s,stoch_d_1s,"
     "ema_fast_1m,ema_slow_1m,sma_1m,bb_pct_1m,rsi_1m,stoch_k_1m,stoch_d_1m,vwap,"
-    "structure_1s,structure_15s,structure_1m,structure_5m,er_1s,er_15s,er_1m,er_5m\n";
+    "structure_1s,structure_15s,structure_1m,structure_5m,er_1s,er_15s,er_1m,er_5m,b1,b2\n";
 
 // No chart snapshot (outside the window): the 15 indicator, 4 structure and 4 ER fields
-// are empty.
-const char* const kNoCharts = ",,,,,,,,,,,,,,,,,,,,,,,";
+// are empty; the turn reads say nothing (0).
+const char* const kNoCharts = ",,,,,,,,,,,,,,,,,,,,,,,,0,0";
 
 TEST(FillsCsvTest, NoFillsIsJustTheHeader) {
   std::ostringstream out;
@@ -93,7 +93,18 @@ TEST(FillsCsvTest, WritesTheChartsAtTheFill) {
   EXPECT_EQ(out.str(), std::string(kHeader) +
                            "1000,B,10000,100,20010,20000,20020,19980,0.8,340,"
                            "10004.12,,10003.50,0.250,41.24,12.50,20.00,"
-                           ",,,,,,,10002.25,-2,,,2,0.457,,,\n");
+                           ",,,,,,,10002.25,-2,,,2,0.457,,,,0,0\n");
+}
+
+// The turn reads in force at the fill (D63): B1 says down, B2 up.
+TEST(FillsCsvTest, WritesTheTurnReads) {
+  Fill f = kBuy;
+  f.b1 = -1;
+  f.b2 = 1;
+  std::ostringstream out;
+  write_fills_csv(out, {f}, kMids, 100 * kSecond);
+  const std::string text = out.str();
+  EXPECT_EQ(text.substr(text.size() - 6), ",-1,1\n");
 }
 
 }  // namespace

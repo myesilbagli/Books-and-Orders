@@ -12,7 +12,9 @@
 //   timeframe, time_et (bar start, HH:MM:SS), open, high, low, close (dollars, the mid),
 //   volume (shares), vwap, ema_fast, ema_slow, sma, bb_upper, bb_lower (dollars),
 //   bb_pct (0 = lower band, 1 = upper), rsi, stoch_k, stoch_d (0-100),
-//   atr (dollars), structure (-2 down, +2 up, else range; D49)
+//   atr (dollars), structure (-2 down, +2 up, else range; D49), er (D57),
+//   ema_mid, ema_long (dollars), b1, b2 (the turn reads a 15 s bar completed, +1 / -1 / 0;
+//   empty on the other timeframes; D63)
 //
 // An indicator still warming up is an empty field, not a zero.
 

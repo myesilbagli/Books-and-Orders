@@ -31,6 +31,9 @@ struct Fill {
   std::optional<ChartPoint> chart_1m;
   std::optional<ChartPoint> chart_5m;
   std::optional<double> vwap;  // ticks
+  // The turn reads in force at the fill (D63): +1 up, -1 down, 0 none.
+  int b1 = 0;
+  int b2 = 0;
 };
 
 // One change of the mid. Stored as bid + ask (twice the mid) so it stays an integer when

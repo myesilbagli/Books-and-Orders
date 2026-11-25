@@ -181,6 +181,8 @@ Quantity Simulator::check_fill(QuoteSide& q, const Order& executed, Quantity sha
       .chart_1m = market_.one_minute().latest(),
       .chart_5m = market_.five_minutes().latest(),
       .vwap = market_.vwap().value(),
+      .b1 = market_.b1(now_ns),
+      .b2 = market_.b2(now_ns),
   });
 
   // Buying adds shares and spends money; selling the reverse. Quantity is unsigned, so

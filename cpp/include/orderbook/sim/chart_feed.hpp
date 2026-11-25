@@ -49,6 +49,10 @@ struct ChartPoint {
   std::optional<double> er;      // efficiency ratio, 0 (going nowhere) to 1 (straight line)
   std::optional<double> ema_mid;   // EMA 20 by default
   std::optional<double> ema_long;  // EMA 50 by default
+  // The turn reads this bar completed (D63): +1, -1 or 0. Set by MarketState on its 15 s
+  // bars only; nullopt on the other timeframes and in a ChartFeed on its own.
+  std::optional<int> b1;
+  std::optional<int> b2;
 };
 
 class ChartFeed {

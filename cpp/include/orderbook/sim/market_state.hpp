@@ -3,7 +3,9 @@
 #include "orderbook/order.hpp"
 #include "orderbook/sim/chart_feed.hpp"
 #include "orderbook/sim/indicators.hpp"
+#include "orderbook/sim/levels.hpp"
 #include "orderbook/sim/trades.hpp"
+#include "orderbook/sim/turn_reads.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -60,6 +62,10 @@ class MarketState {
   [[nodiscard]] const ChartFeed& one_minute() const { return one_minute_; }
   [[nodiscard]] const ChartFeed& five_minutes() const { return five_minutes_; }
   [[nodiscard]] const Vwap& vwap() const { return vwap_; }
+  // The turn reads in force at t (D63): +1, -1 or 0. Call advance(t) first, so a 15 s bar
+  // ending at t has been read.
+  [[nodiscard]] int b1(std::uint64_t t_ns) const { return b1_.direction(t_ns); }
+  [[nodiscard]] int b2(std::uint64_t t_ns) const { return b2_.direction(t_ns); }
 
  private:
   MarketStateConfig config_;
@@ -71,6 +77,23 @@ class MarketState {
   ClosedBars pending_;  // closed since the last advance(), waiting to be handed out
   std::optional<Price> carried_mid_x2_;  // the last mid before from_ns
   bool started_ = false;                 // the window has opened
+
+  // The turn reads (D63), on the 15 s bars with the 1 min chart as context.
+  struct ReadContext {
+    std::vector<Level> levels;
+    std::optional<double> atr;  // the 1 min ATR, ticks
+    int trend = 0;              // the 1 min EMA stack
+  };
+  DayRange day_;                           // the session's open, high, low from 15 s bars
+  FailedBreakout b1_;
+  PullbackEnd b2_;
+  ReadContext next_;                       // for the 15 s bar now open: as of its open
+  std::optional<ChartPoint> context_1m_;   // the last 1 min bar closed by then
+
+  // Every newly closed bar goes through here: the turn reads mark the 15 s points, then
+  // all of them wait in pending_ for the next advance().
+  void take(ClosedBars fresh);
+  void read_turns(ClosedBars& fresh);
 
   // At the first event at or after from_ns: open the bars at from_ns with the mid in
   // force then, which usually changed before the window (else the first bar would wait

@@ -28,14 +28,14 @@ TEST(ChartCsvTest, Header) {
   write_chart_header(out);
   EXPECT_EQ(out.str(),
             "timeframe,time_et,open,high,low,close,volume,vwap,ema_fast,ema_slow,sma,"
-            "bb_upper,bb_lower,bb_pct,rsi,stoch_k,stoch_d,atr,structure,er\n");
+            "bb_upper,bb_lower,bb_pct,rsi,stoch_k,stoch_d,atr,structure,er,ema_mid,ema_long,b1,b2\n");
 }
 
 // Warming up: no indicator has a value yet, so those fields are empty, not 0.
 TEST(ChartCsvTest, WarmingUpLeavesIndicatorsEmpty) {
   std::ostringstream out;
   write_chart_row(out, "1s", ChartPoint{.bar = bar_0930_05()}, std::nullopt);
-  EXPECT_EQ(out.str(), "1s,09:30:05,290.1200,290.1350,290.1000,290.1250,1200,,,,,,,,,,,,,\n");
+  EXPECT_EQ(out.str(), "1s,09:30:05,290.1200,290.1350,290.1000,290.1250,1200,,,,,,,,,,,,,,,,,\n");
 }
 
 // Everything in chart units: dollars to 4 places, %B to 3, RSI and stoch to 2.
@@ -52,12 +52,17 @@ TEST(ChartCsvTest, ValuesInChartUnits) {
                      .stoch_rsi = StochRsiValue{.k = 80.5, .d = 75.25},
                      .atr = 1'500.0,
                      .structure = -2,
-                     .er = 0.12345};
+                     .er = 0.12345,
+                     .ema_mid = 2'901'050.0,
+                     .ema_long = 2'900'500.0,
+                     .b1 = -1,
+                     .b2 = 0};
   std::ostringstream out;
   write_chart_row(out, "1m", p, 2'899'876.4);
   EXPECT_EQ(out.str(),
             "1m,09:30:05,290.1200,290.1350,290.1000,290.1250,1200,289.9876,290.1100,290.0951,"
-            "290.1000,290.1400,290.0600,0.813,61.23,80.50,75.25,0.1500,-2,0.123\n");
+            "290.1000,290.1400,290.0600,0.813,61.23,80.50,75.25,0.1500,-2,0.123,290.1050,"
+            "290.0500,-1,0\n");
 }
 
 TEST(ChartCsvTest, AfternoonTimeIsTwentyFourHour) {

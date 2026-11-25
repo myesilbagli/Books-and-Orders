@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <vector>
 
 // The price levels a trader watches, as known at one moment (D63): where a breakout can
@@ -54,8 +55,10 @@ struct LevelSettings {
 
 // Every level in force at `price` (ticks), lowest first. Missing inputs (no VWAP yet, EMA
 // warming up, no bar of the day yet) are left out. Round levels: the one at or below the
-// price and the one above it.
-std::vector<Level> levels_at(const std::vector<Swing>& swings, const DayRange& day,
+// price and the one above it. `swings`: a view of the swings known by then, oldest first
+// (a std::span: a pointer and a length, so the caller can pass the first n of a vector
+// without copying them).
+std::vector<Level> levels_at(std::span<const Swing> swings, const DayRange& day,
                              std::optional<double> vwap, std::optional<double> ema,
                              double price, const LevelSettings& settings = {});
 

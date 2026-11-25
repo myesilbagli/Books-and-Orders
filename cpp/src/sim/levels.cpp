@@ -35,7 +35,7 @@ std::optional<double> DayRange::low() const {
   return range_ ? std::optional<double>(ticks(range_->low_x2)) : std::nullopt;
 }
 
-std::vector<Level> levels_at(const std::vector<Swing>& swings, const DayRange& day,
+std::vector<Level> levels_at(std::span<const Swing> swings, const DayRange& day,
                              std::optional<double> vwap, std::optional<double> ema,
                              double price, const LevelSettings& settings) {
   std::vector<Level> out;
