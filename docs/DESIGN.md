@@ -63,6 +63,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Delayed-oracle curve: the hindsight leg learned L seconds late, for L = 0 to 300 s (7c) | `research/oracle_curve.py`, `research/fill_anatomy.py` (`delayed_leg`) | done, D61 |
 | Real-time reads placed on the delayed-oracle curve: equivalent lag, coverage, agreement with the hindsight leg (7d-1) | `research/turn_reads.py`, `research/test_turn_reads.py` | done, D62 |
 | Price levels for the turn reads: last swings, day open/high/low, VWAP, EMA 20, round 50 ¢; EMA 20 and 50 on every chart (7d-2, step 1) | `cpp/include/orderbook/sim/levels.hpp`, `cpp/src/sim/levels.cpp`, `cpp/include/orderbook/sim/chart_feed.hpp` | done, D63 |
+| B1, failed breakout at a level: poke ≤ ¼ ATR, close back within 2 bars, read held 45 s (7d-2, step 2) | `cpp/include/orderbook/sim/turn_reads.hpp`, `cpp/src/sim/turn_reads.cpp` | done, D63 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -908,6 +909,12 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - **B2, a pullback ends at the EMA 20 or VWAP:** the 1 min EMAs are stacked (9 > 20 > 50, or the reverse), a 15 s pullback reaches the EMA 20 or VWAP and a reversal bar closes in the trend's direction. Read: with the trend.
   - Each read holds its direction for 45 s after its bar closes, then says nothing. The point is not to trade them but to know which side of our quote is about to be picked off.
 - **Step 1, the levels (`levels_at`):** everything a trader would mark, as known at that moment: the last 3 confirmed 1 min swing highs and lows, the day's open, high and low so far (from 09:30; the earlier warm-up bars don't count), VWAP, the 1 min EMA 20, and the round 50 ¢ prices just below and above. Lowest first, a stable sort so equal prices keep a fixed order. A plain vector rebuilt when asked: about a dozen levels, so a scan beats keeping a sorted structure up to date.
+- **Step 2, B1 (`FailedBreakout`):** fed each closed 15 s bar with the levels as they were when it opened (so a level the bar itself makes, like a new day high, can't be poked by it) and the 1 min ATR.
+  - A poke: the bar opens at or on one side of a level and its high (low) goes past it by more than 0 and at most ¼ ATR.
+  - The trap: that bar, or one of the next 2, closes back on the first side. If any bar first goes more than ¼ ATR past, the breakout worked and the poke is dropped; after 2 bars it is dropped too.
+  - Traps each way in the same bar cancel (no read). No ATR yet: no read.
+  - The read starts when the completing bar ends (nothing earlier is known) and lasts 45 s; a newer trap replaces it.
+  - Data structure: a short vector of pokes still waiting, rebuilt each bar. Rarely more than a few, so no index.
 - **EMA 20 and 50 on every chart (`ema_mid`, `ema_long`):** added next to the existing 9 and 21, not replacing them, so every older output stays byte-identical. Brooks' EMA is the 20; the 50 completes the 9 / 20 / 50 stack.
 - **Exploration (D55):** descriptive, measured on the equivalent-lag scale (D62); expectations written before the run.
 
