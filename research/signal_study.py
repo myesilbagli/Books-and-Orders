@@ -32,7 +32,8 @@ INDICATOR_COLUMNS = [f"{name}_{tf}" for tf in ("1s", "1m")
                      for name in ("ema_fast", "ema_slow", "sma", "bb_pct", "rsi", "stoch_k",
                                   "stoch_d")] + ["vwap"] + [
                          f"structure_{tf}" for tf in ("1s", "15s", "1m", "5m")] + [  # D49
-                         f"er_{tf}" for tf in ("1s", "15s", "1m", "5m")]  # D57
+                         f"er_{tf}" for tf in ("1s", "15s", "1m", "5m")] + [  # D57
+                         "b1", "b2"]  # the turn reads in force at the fill, -1 / 0 / +1 (D63)
 HORIZONS = (1, 10)
 PRIMARY_HORIZON = 10  # the horizon milestone 5 judged everything at
 BLOCK_NS = 5 * bs.MINUTE_NS

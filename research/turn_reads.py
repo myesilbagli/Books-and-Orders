@@ -1,5 +1,5 @@
 """Which real-time reads see the 1 min trend leg early? Each read on the delayed-oracle
-curve (round 7d-1, D62).
+curve (round 7d-1, D62; B1 and B2 from round 7d-2, D63).
 
     research/.venv/bin/python research/turn_reads.py data/sim/days/AAPL/*/naive_0us.csv
 
@@ -7,7 +7,8 @@ For each read: fills against it vs the rest at 1 s and 10 s (within days, block 
 D56), its **equivalent lag** (how late a trader knowing the hindsight leg would have to be
 to do as well, from round 7c's curve, computed in the same run), its coverage (share of
 shares it gives a direction to) and its agreement with the hindsight leg where both have
-one. Descriptive: no primary test. Standard library only.
+one. Then the same per session of the founder's map (open, late morning, lunch, power) for
+the price-action reads. Descriptive: no primary test. Standard library only.
 """
 
 import argparse
@@ -44,7 +45,23 @@ READS = [
     ("1s EMA trend", ss._trend("1s")),
     ("1m EMA trend", ss._trend("1m")),
     ("confirmed 1m leg", column_reading("confirmed_leg")),
+    ("B1 trap", column_reading("b1")),               # 7d-2: price action at levels (D63)
+    ("B2 pullback end", column_reading("b2")),
 ]
+PRICE_ACTION = ("B1 trap", "B2 pullback end")
+
+HOUR_NS = 3600 * fa.SECOND_NS
+SESSIONS = [  # the founder's playbook session map: (name, start, end), ns since midnight ET
+    ("open", int(9.5 * HOUR_NS), int(10.5 * HOUR_NS)),
+    ("late morning", int(10.5 * HOUR_NS), 12 * HOUR_NS),
+    ("lunch", 12 * HOUR_NS, 14 * HOUR_NS),
+    ("power", 14 * HOUR_NS, 16 * HOUR_NS),
+]
+
+
+def in_session(days, start_ns, end_ns):
+    """Each day's fills from start_ns (included) to end_ns (not)."""
+    return [[r for r in rows if start_ns <= r.fill.timestamp_ns < end_ns] for rows in days]
 
 
 def equivalent_lag(diff, curve):
@@ -116,6 +133,23 @@ def main(argv=None):
         print(f"  {name:<18}{cov:>7.0%}{'-' if agree is None else f'{agree:.0%}':>8}{r1.diff:>+9.2f}"
               f"{f'[{r1.low:+.2f}, {r1.high:+.2f}]':>17}{lag_text:>12}{r10.diff:>+10.2f}"
               f"{f'[{r10.low:+.2f}, {r10.high:+.2f}]':>17}  {r1.days_worse}/{r1.days}")
+
+    # The price-action reads by session: where in the day does each one work, if at all?
+    pa = [s for s in read_signals if s.name in PRICE_ACTION]
+    print("\nby session (price-action reads): against minus rest, cents a share, 95 %")
+    print(f"  {'read':<18}{'session':<14}{'covers':>7}{'1 s diff':>9}{'95 %':>17}"
+          f"{'10 s diff':>10}{'95 %':>17}  worse 1 s")
+    for name, start, end in SESSIONS:
+        part = in_session(days, start, end)
+        res = ss.study_days(part, a.resamples, a.seed, signals=pa)
+        for s in pa:
+            reading = dict(READS)[s.name]
+            cov, _ = coverage_and_agreement(part, reading)
+            r1, r10 = [next(r for r in res if r.signal == s.name and r.horizon == h
+                            and r.period == "whole day") for h in (1, 10)]
+            print(f"  {s.name:<18}{name:<14}{cov:>7.1%}{ss._f(r1.diff):>9}"
+                  f"{f'[{ss._f(r1.low)}, {ss._f(r1.high)}]':>17}{ss._f(r10.diff):>10}"
+                  f"{f'[{ss._f(r10.low)}, {ss._f(r10.high)}]':>17}  {r1.days_worse}/{r1.days}")
 
 
 if __name__ == "__main__":

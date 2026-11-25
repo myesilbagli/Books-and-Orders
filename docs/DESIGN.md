@@ -937,7 +937,8 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - B2's touch widens from 0.1 to 0.2 ATR (about 7 c on AAPL, still inside a 15 s bar's typical 16 c range). Result: 6-23 a day (median 14).
   - The founder's eye check on the hub, 30 Jul 2026: the B1s sit at the local tops and bottoms. Seen too: in a steep slide (10:33-10:34) B1 read "up" four times at an earlier swing low that the price then broke; Brooks' point that reversal attempts fail inside a tight channel. The tight-channel veto (V) is the planned answer; first the reads are measured as they are.
 - **EMA 20 and 50 on every chart (`ema_mid`, `ema_long`):** added next to the existing 9 and 21, not replacing them, so every older output stays byte-identical. Brooks' EMA is the 20; the 50 completes the 9 / 20 / 50 stack.
-- **Exploration (D55):** descriptive, measured on the equivalent-lag scale (D62); expectations written before the run.
+- **Measured (`turn_reads.py`):** B1 and B2 join 7d-1's reads, read from the fills' `b1`, `b2` (signal_study now reads both; older CSVs read them as missing). The same table (1 s and 10 s gap within days, block bootstrap, equivalent lag on the delayed-oracle curve, coverage, agreement with the hindsight leg), then the price-action reads again per session of the founder's map: open 9:30-10:30, late morning to 12:00, lunch to 14:00, power to 16:00 (each day's fills cut to the session, then the same bootstrap).
+- **Exploration (D55):** descriptive, no primary test; expectations written before the run, results in the private log.
 
 ## Build
 
