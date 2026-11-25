@@ -62,6 +62,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Ladder: orders at the touch and levels − 1 ticks behind, each kept in its queue; `mm_sim --levels`; runs compared paired by day and block (7b-1) | `cpp/include/orderbook/sim/simulator.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/tools/mm_sim.cpp`, `research/run_days.sh`, `research/compare_runs.py` | done, D60 |
 | Delayed-oracle curve: the hindsight leg learned L seconds late, for L = 0 to 300 s (7c) | `research/oracle_curve.py`, `research/fill_anatomy.py` (`delayed_leg`) | done, D61 |
 | Real-time reads placed on the delayed-oracle curve: equivalent lag, coverage, agreement with the hindsight leg (7d-1) | `research/turn_reads.py`, `research/test_turn_reads.py` | done, D62 |
+| Price levels for the turn reads: last swings, day open/high/low, VWAP, EMA 20, round 50 ¢; EMA 20 and 50 on every chart (7d-2, step 1) | `cpp/include/orderbook/sim/levels.hpp`, `cpp/src/sim/levels.cpp`, `cpp/include/orderbook/sim/chart_feed.hpp` | done, D63 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -899,6 +900,16 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Equivalent lag:** straight lines between the curve's points, read only up to where the curve first reaches 0 (past that point a later belief is the wrong leg, and the curve turns back). A gap at or below the oracle's is 0 s; a gap at or above 0 is "nothing". The curve is computed in the same run, from the same fills and the same bootstrap draws.
 - **Also per read:** coverage (share of shares it gives a direction to) and agreement with the hindsight leg where both have one. Agreement alone is not the measure: a read can match the leg most of the time and still be worth nothing, if it is right mid-leg and wrong at the turns.
 - **Reads in this round:** the ones already in every fill: structure on 1 min, 15 s and 1 s; a 15 s strong trend (±2 and ER ≥ 0.6); the EMA 9/21 trend on 1 s and 1 min; the confirmed 1 min leg (D59). Exploration, descriptive (no primary test); results in the private log. Next (7d-2): reads that see a turn as it happens, among them price-action setups the founder picks.
+
+### D63. Reads that see a turn as it happens: price-action setups at levels (round 7d-2)
+
+- **Why:** round 7c showed a read must know the 1 min leg within about 30 s of its turn to keep half its value, and round 7d-1 found that no read we had (structure, EMAs, confirmed swings) gets there. The founder's own read is price action in Al Brooks' sense: a bar pattern at a level, seen on a short chart, inside the context of a longer one. 7d-2 codes the two he trades most, on 15 s bars (Brooks' 5 min structure maps onto our 1 min chart, so his trigger bars map onto 15 s), with the 1 min chart as context and the 1 min ATR as the yardstick.
+  - **B1, failed breakout at a level (a trap):** a bar pokes past a level by a little (at most a quarter of an ATR) and within two bars a bar closes back on the other side. Read: against the poke.
+  - **B2, a pullback ends at the EMA 20 or VWAP:** the 1 min EMAs are stacked (9 > 20 > 50, or the reverse), a 15 s pullback reaches the EMA 20 or VWAP and a reversal bar closes in the trend's direction. Read: with the trend.
+  - Each read holds its direction for 45 s after its bar closes, then says nothing. The point is not to trade them but to know which side of our quote is about to be picked off.
+- **Step 1, the levels (`levels_at`):** everything a trader would mark, as known at that moment: the last 3 confirmed 1 min swing highs and lows, the day's open, high and low so far (from 09:30; the earlier warm-up bars don't count), VWAP, the 1 min EMA 20, and the round 50 ¢ prices just below and above. Lowest first, a stable sort so equal prices keep a fixed order. A plain vector rebuilt when asked: about a dozen levels, so a scan beats keeping a sorted structure up to date.
+- **EMA 20 and 50 on every chart (`ema_mid`, `ema_long`):** added next to the existing 9 and 21, not replacing them, so every older output stays byte-identical. Brooks' EMA is the 20; the 50 completes the 9 / 20 / 50 stack.
+- **Exploration (D55):** descriptive, measured on the equivalent-lag scale (D62); expectations written before the run.
 
 ## Build
 

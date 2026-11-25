@@ -28,6 +28,10 @@ struct ChartSettings {
   std::size_t stoch_d = 3;
   StructureSettings structure;  // ATR(14), swings of 2 ATR (D48, D49)
   std::size_t efficiency = 10;  // efficiency ratio over 10 bars, Kaufman's (D57)
+  // Brooks' EMA 20 and a slow 50, for the 9 > 20 > 50 trend stack and the pullback level
+  // (D63). Separate from ema_slow (21): the older columns stay as they were.
+  std::size_t ema_mid = 20;
+  std::size_t ema_long = 50;
 };
 
 // A closed bar and every indicator's value as of its close (nullopt while warming up).
@@ -43,6 +47,8 @@ struct ChartPoint {
   std::optional<double> atr;     // ticks
   std::optional<int> structure;  // -2 down, +2 up, else range; nullopt before 2 highs + 2 lows
   std::optional<double> er;      // efficiency ratio, 0 (going nowhere) to 1 (straight line)
+  std::optional<double> ema_mid;   // EMA 20 by default
+  std::optional<double> ema_long;  // EMA 50 by default
 };
 
 class ChartFeed {
@@ -71,6 +77,8 @@ class ChartFeed {
   StochRsi stoch_rsi_;
   MarketStructure structure_;
   EfficiencyRatio er_;
+  Ema ema_mid_;
+  Ema ema_long_;
   std::optional<ChartPoint> latest_;
 
   // Feeds closed bars to the indicators, one at a time, and records each one's point.

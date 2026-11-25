@@ -143,5 +143,26 @@ TEST(ChartFeedTest, EachPointHasItsEfficiencyRatio) {
   EXPECT_DOUBLE_EQ(*chart.latest()->er, 0.0);
 }
 
+// EMA 20 and 50 (D63), here shortened to 2 and 3. Closes 100, 110, 100 ticks: EMA(2) is
+// seeded with 105 on the second close, then moves 2/3 of the way to 100; EMA(3) is the
+// plain average of all three on the third.
+TEST(ChartFeedTest, EachPointHasItsMidAndLongEma) {
+  ChartSettings s = small();
+  s.ema_mid = 2;
+  s.ema_long = 3;
+  ChartFeed chart(kSecond, s);
+  chart.on_mid(0, 200);
+  chart.on_mid(kSecond, 220);
+  chart.advance(2 * kSecond);
+  ASSERT_TRUE(chart.latest()->ema_mid);
+  EXPECT_DOUBLE_EQ(*chart.latest()->ema_mid, 105.0);
+  EXPECT_FALSE(chart.latest()->ema_long);
+  chart.on_mid(2 * kSecond, 200);
+  chart.advance(3 * kSecond);
+  EXPECT_NEAR(*chart.latest()->ema_mid, 105.0 - 5.0 * 2 / 3, 1e-9);
+  ASSERT_TRUE(chart.latest()->ema_long);
+  EXPECT_NEAR(*chart.latest()->ema_long, 310.0 / 3, 1e-9);
+}
+
 }  // namespace
 }  // namespace ob::sim
