@@ -68,6 +68,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | B1/B2 inside `MarketState` (15 s bars, 1 min context), on every fill (`b1`, `b2`) and every chart row (`ema_mid`, `ema_long`, `b1`, `b2`) (7d-2, step 4) | `cpp/src/sim/market_state.cpp`, `cpp/src/sim/simulator.cpp`, `cpp/src/sim/fills_csv.cpp`, `cpp/src/sim/chart_csv.cpp` | done, D63 |
 | Hub: B1/B2 markers on every timeframe (Reads checkbox), `reads.json`; the hub's candles now come from a `chart_dump` run with the founder's swing sizes (7d-2, step 4) | `hub/web/src/lib/reads.ts`, `hub/web/src/App.tsx`, `research/hub_export.py`, `research/export_hub.sh` | done, D63 |
 | Event study: each read's forward move (10 s to 5 min) vs a taker's round trip, with momentum / fade baselines (7e) | `research/event_study.py`, `research/test_event_study.py` | done, D64 |
+| Taker backtest: market orders on a read, filled against the real book after a latency, fixed hold, one position at a time (7f) | `cpp/include/orderbook/sim/taker.hpp`, `cpp/src/sim/taker.cpp`, `cpp/tools/taker_sim.cpp`, `research/run_taker.sh`, `research/taker_summary.py` | done, D65 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -948,6 +949,15 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Cost:** half the spread in and half out plus the take fee each way (about 0.3 c a share). The half spread is read off the naive fills, which rest at the touch: |price − mid|. Fills come more often when the spread is wide, so this leans high; the report prints the number it used.
 - **Baselines:** every 15 s bar's own direction (momentum) and its opposite (fade). They should earn about 0: a check that the method has no built-in drift.
 - **Exploration (D55):** descriptive, no primary test; expectations written before the run, results in the private log.
+
+### D65. A taker on the replay: does a read survive real fills? (round 7f)
+
+- **Why:** the event study (D64) measures a read's move from the mid against an estimated cost. A taker pays what the book actually offers when its order arrives, at a time of its own choosing (usually when the spread is widest), and can hold only one position at a time. This backtest pays exactly that.
+- **Rule (`taker_sim`, `TakerBot`):** when a read (B1 by default) completes on a 15 s bar inside the entry window (09:30-10:30 by default), a market order for `size` shares reaches the book `latency` after the bar's end. It fills against the replayed book as it was at that moment: the best price first, then the next ticks (`sweep_price`; no fill rather than an invented price if the side is too thin). `hold` after the entry the exit is sent and reaches the book `latency` later. Reads while entering or holding are ignored. At the end of the data an open position is closed against the book.
+- **The book as it was:** the bot is asked before each message of the stock changes the book, so an order that arrived since the previous message sees exactly the state it would have met. Our orders never change the replay (a 100-share order is small next to AAPL's depth; the sweep still pays for the levels it would take).
+- **Read with the same charts as everything else:** the tool runs `MarketState` with the founder's settings, so the reads are the ones `mm_sim` and `chart_dump` produce.
+- **Measured (`taker_summary.py`):** trades, win rate after fees (0.3 c a share each way), mean net cents a share with an interval from resampling trades within days, days positive, worst day, worst trade, total dollars. `run_taker.sh` runs one configuration on every day.
+- **Exploration (D55):** descriptive; expectations written before the run, results in the private log.
 
 ## Build
 

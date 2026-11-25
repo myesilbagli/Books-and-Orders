@@ -20,6 +20,7 @@ add_library(orderbook STATIC
   src/sim/structure.cpp
   src/sim/levels.cpp
   src/sim/turn_reads.cpp
+  src/sim/taker.cpp
   src/itch/messages.cpp
   src/itch/mapped_file.cpp
   src/itch/scan.cpp
@@ -58,6 +59,7 @@ add_executable(orderbook_tests
   tests/structure_test.cpp
   tests/levels_test.cpp
   tests/turn_reads_test.cpp
+  tests/taker_test.cpp
 )
 target_link_libraries(orderbook_tests PRIVATE orderbook GTest::gtest_main)
 orderbook_warnings(orderbook_tests)
@@ -90,3 +92,7 @@ orderbook_warnings(chart_dump)
 add_executable(itch_extract tools/itch_extract.cpp)
 target_link_libraries(itch_extract PRIVATE orderbook)
 orderbook_warnings(itch_extract)
+
+add_executable(taker_sim tools/taker_sim.cpp)
+target_link_libraries(taker_sim PRIVATE orderbook)
+orderbook_warnings(taker_sim)
