@@ -69,6 +69,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Hub: B1/B2 markers on every timeframe (Reads checkbox), `reads.json`; the hub's candles now come from a `chart_dump` run with the founder's swing sizes (7d-2, step 4) | `hub/web/src/lib/reads.ts`, `hub/web/src/App.tsx`, `research/hub_export.py`, `research/export_hub.sh` | done, D63 |
 | Event study: each read's forward move (10 s to 5 min) vs a taker's round trip, with momentum / fade baselines (7e) | `research/event_study.py`, `research/test_event_study.py` | done, D64 |
 | Taker backtest: market orders on a read, filled against the real book after a latency, fixed hold, one position at a time (7f) | `cpp/include/orderbook/sim/taker.hpp`, `cpp/src/sim/taker.cpp`, `cpp/tools/taker_sim.cpp`, `research/run_taker.sh`, `research/taker_summary.py` | done, D65 |
+| MM pulls the side a turn read is against, optionally in a time window (7d-3) | `cpp/include/orderbook/sim/pull_on_read.hpp`, `cpp/tools/mm_sim.cpp` | done, D66 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -958,6 +959,14 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Read with the same charts as everything else:** the tool runs `MarketState` with the founder's settings, so the reads are the ones `mm_sim` and `chart_dump` produce.
 - **Measured (`taker_summary.py`):** trades, win rate after fees (0.3 c a share each way), mean net cents a share with an interval from resampling trades within days, days positive, worst day, worst trade, total dollars. `run_taker.sh` runs one configuration on every day.
 - **Exploration (D55):** descriptive; expectations written before the run, results in the private log.
+
+### D66. The market maker pulls the side a turn read is against (round 7d-3)
+
+- **Why:** the second use of a read. A taker pays the spread to act on it (D65); a market maker earns the spread and can act on it for free by not quoting the side it says will be picked off. While B1 reads down, whoever sells to our bid is selling ahead of a fall.
+- **Rule (`PullOnRead`, `mm_sim --pull-read b1|b2 [--read-window HH:MM-HH:MM]`):** a decorator, like the thin-touch pull (D34): it asks the inner strategy where to quote, then takes away the bid while the read is −1 and the ask while it is +1, only inside the window (all day by default). It reads `MarketState::b1/b2(now)`, the same reads every other tool sees. When the read ends the quote comes back at the back of the queue.
+- **Why a decorator:** it fits on any strategy (naive, Avellaneda-Stoikov, the thin-touch pull, the ladder) without changing it, and stacks with the others.
+- **Measured:** `run_days.sh` runs (all day; 09:30-10:30 only), compared with naive by `compare_runs.py` (cents a share within days, paired blocks, D60) and by P&L per day.
+- **Exploration (D55):** 2 primary tests (10 s cents a share, whole day); results in the private log.
 
 ## Build
 

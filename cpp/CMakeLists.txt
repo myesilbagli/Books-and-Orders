@@ -60,6 +60,7 @@ add_executable(orderbook_tests
   tests/levels_test.cpp
   tests/turn_reads_test.cpp
   tests/taker_test.cpp
+  tests/pull_on_read_test.cpp
 )
 target_link_libraries(orderbook_tests PRIVATE orderbook GTest::gtest_main)
 orderbook_warnings(orderbook_tests)

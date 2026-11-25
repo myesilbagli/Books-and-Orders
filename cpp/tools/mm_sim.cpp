@@ -2,14 +2,17 @@
 // report fills, inventory, P&L and markouts.
 //
 //   ./build/release/cpp/mm_sim data/itch/12302019.NASDAQ_ITCH50 AAPL 50 [fills.csv]
-//                             [--as 0.2] [--pull 0.2] [--rebate 0.2]
+//                             [--as 0.2] [--pull 0.2] [--rebate 0.2] [--levels 2]
+//                             [--pull-read b1] [--read-window 09:30-10:30]
 //
 // The third argument is the latency in microseconds. Without --as the naive strategy
 // runs (join the touch); --as <cents> runs Avellaneda-Stoikov with gamma set so that,
 // at AAPL's average volatility on 30 Dec 2019, one lot (one quote) leans the quotes by
 // that many cents (D31). --pull <share> wraps either one: no quote on a side whose share
 // of the shares at the touch is below <share> (D34). --rebate <cents> adds the maker
-// rebate per share to the P&L breakdown (D36). Quoting runs 09:31-16:00 ET: the
+// rebate per share to the P&L breakdown (D36). --pull-read b1|b2 wraps it again: no quote
+// on the side that read says is about to be picked off, inside --read-window (all day by
+// default; D66). Quoting runs 09:31-16:00 ET: the
 // first minute is skipped because the opening auction (cross) works by different rules
 // than the continuous book the simulator models.
 
@@ -18,6 +21,7 @@
 #include "orderbook/itch/reader.hpp"
 #include "orderbook/sim/avellaneda_stoikov.hpp"
 #include "orderbook/sim/fills_csv.hpp"
+#include "orderbook/sim/pull_on_read.hpp"
 #include "orderbook/sim/pnl.hpp"
 #include "orderbook/sim/pull_when_thin.hpp"
 #include "orderbook/sim/simulator.hpp"
@@ -126,7 +130,8 @@ int main(int argc, char* argv[]) {
   if (argc < 4) {
     std::cerr << "usage: " << argv[0]
               << " <itch-file> <SYMBOL> <latency_us> [fills.csv] [--as <cents per lot>]"
-              << " [--pull <touch share>] [--rebate <cents per share>] [--levels <n>]\n";
+              << " [--pull <touch share>] [--rebate <cents per share>] [--levels <n>]"
+              << " [--pull-read b1|b2] [--read-window HH:MM-HH:MM]\n";
     return 2;
   }
   const std::string symbol = argv[2];
@@ -136,6 +141,28 @@ int main(int argc, char* argv[]) {
   std::optional<double> pull_share;
   double rebate_cents = 0.0;  // what the exchange pays per share of liquidity we add
   std::size_t levels = 1;     // the ladder (D60): orders at the touch and levels - 1 ticks behind
+  std::optional<ob::sim::TurnRead> pull_read;  // D66
+  std::uint64_t read_from = 9 * kHour + 30 * 60 * kSecond;
+  std::uint64_t read_to = 16 * kHour;
+  std::string read_window = "09:30-16:00";  // as given, for the report
+  // "09:30-10:30" -> the two times; false unless it is exactly HH:MM-HH:MM.
+  const auto parse_window = [&](const std::string& w) {
+    const auto digit = [&](std::size_t i) { return w[i] >= '0' && w[i] <= '9'; };
+    if (w.size() != 11 || w[2] != ':' || w[5] != '-' || w[8] != ':') {
+      return false;
+    }
+    for (const std::size_t i : {0, 1, 3, 4, 6, 7, 9, 10}) {
+      if (!digit(i)) {
+        return false;
+      }
+    }
+    const auto at = [&](std::size_t i) {
+      return static_cast<std::uint64_t>((w[i] - '0') * 10 + (w[i + 1] - '0'));
+    };
+    read_from = at(0) * kHour + at(3) * 60 * kSecond;
+    read_to = at(6) * kHour + at(9) * 60 * kSecond;
+    return true;
+  };
   for (int i = 4; i < argc; ++i) {
     const std::string arg = argv[i];
     if (arg == "--as" && i + 1 < argc) {
@@ -146,6 +173,19 @@ int main(int argc, char* argv[]) {
       rebate_cents = std::strtod(argv[++i], nullptr);
     } else if (arg == "--levels" && i + 1 < argc) {
       levels = std::strtoull(argv[++i], nullptr, 10);
+    } else if (arg == "--pull-read" && i + 1 < argc) {
+      const std::string which = argv[++i];
+      if (which != "b1" && which != "b2") {
+        std::cerr << "--pull-read takes b1 or b2\n";
+        return 2;
+      }
+      pull_read = which == "b1" ? ob::sim::TurnRead::B1 : ob::sim::TurnRead::B2;
+    } else if (arg == "--read-window" && i + 1 < argc) {
+      read_window = argv[++i];
+      if (!parse_window(read_window)) {
+        std::cerr << "--read-window takes HH:MM-HH:MM\n";
+        return 2;
+      }
     } else {
       csv_path = arg;
     }
@@ -195,6 +235,16 @@ int main(int argc, char* argv[]) {
     driver = pull.get();
     std::ostringstream name;
     name << strategy_name << ", pulled below " << *pull_share * 100 << "% of the touch";
+    strategy_name = name.str();
+  }
+  // And the read rule around that (D66); destroyed before what it wraps, like `pull`.
+  std::unique_ptr<ob::sim::PullOnRead> on_read;
+  if (pull_read) {
+    on_read = std::make_unique<ob::sim::PullOnRead>(*driver, *pull_read, read_from, read_to);
+    driver = on_read.get();
+    std::ostringstream name;
+    name << strategy_name << ", the side " << (*pull_read == ob::sim::TurnRead::B1 ? "B1" : "B2")
+         << " reads against pulled, " << read_window;
     strategy_name = name.str();
   }
   if (config.levels > 1) {
