@@ -67,6 +67,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | B2, the pullback ends at the EMA 20 or VWAP with the 1 min EMA stack, read held 45 s (7d-2, step 3) | `cpp/include/orderbook/sim/turn_reads.hpp`, `cpp/src/sim/turn_reads.cpp` | done, D63 |
 | B1/B2 inside `MarketState` (15 s bars, 1 min context), on every fill (`b1`, `b2`) and every chart row (`ema_mid`, `ema_long`, `b1`, `b2`) (7d-2, step 4) | `cpp/src/sim/market_state.cpp`, `cpp/src/sim/simulator.cpp`, `cpp/src/sim/fills_csv.cpp`, `cpp/src/sim/chart_csv.cpp` | done, D63 |
 | Hub: B1/B2 markers on every timeframe (Reads checkbox), `reads.json`; the hub's candles now come from a `chart_dump` run with the founder's swing sizes (7d-2, step 4) | `hub/web/src/lib/reads.ts`, `hub/web/src/App.tsx`, `research/hub_export.py`, `research/export_hub.sh` | done, D63 |
+| Event study: each read's forward move (10 s to 5 min) vs a taker's round trip, with momentum / fade baselines (7e) | `research/event_study.py`, `research/test_event_study.py` | done, D64 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -938,6 +939,14 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - The founder's eye check on the hub, 30 Jul 2026: the B1s sit at the local tops and bottoms. Seen too: in a steep slide (10:33-10:34) B1 read "up" four times at an earlier swing low that the price then broke; Brooks' point that reversal attempts fail inside a tight channel. The tight-channel veto (V) is the planned answer; first the reads are measured as they are.
 - **EMA 20 and 50 on every chart (`ema_mid`, `ema_long`):** added next to the existing 9 and 21, not replacing them, so every older output stays byte-identical. Brooks' EMA is the 20; the 50 completes the 9 / 20 / 50 stack.
 - **Measured (`turn_reads.py`):** B1 and B2 join 7d-1's reads, read from the fills' `b1`, `b2` (signal_study now reads both; older CSVs read them as missing). The same table (1 s and 10 s gap within days, block bootstrap, equivalent lag on the delayed-oracle curve, coverage, agreement with the hindsight leg), then the price-action reads again per session of the founder's map: open 9:30-10:30, late morning to 12:00, lunch to 14:00, power to 16:00 (each day's fills cut to the session, then the same bootstrap).
+- **Exploration (D55):** descriptive, no primary test; expectations written before the run, results in the private log.
+
+### D64. After a read fires, does the price go its way far enough for a taker? (round 7e)
+
+- **Why:** 7d-2 measured B1 and B2 the market maker's way: fills against a read vs the rest, at 1 s and 10 s. The founder asked the other question: if price action can't improve the market maker, is it worth something to a directional, mid-speed trader? A taker crosses the spread instead of earning it, so the read's absolute move has to beat the round trip.
+- **Rule (`research/event_study.py`):** every B1 / B2 read is an event at the end of the 15 s bar that completed it (when it was known). The mid's move the read's way 10, 30, 60, 120 and 300 s later, from the 1 s bars of the chart CSV (the mid at t is the close of the 1 s bar ending at t). Mean over events, with a 95 % interval from 5 min blocks resampled within each day (events in one block move together); and the share of events beating the round trip. Whole day, and per session of the founder's map.
+- **Cost:** half the spread in and half out plus the take fee each way (about 0.3 c a share). The half spread is read off the naive fills, which rest at the touch: |price − mid|. Fills come more often when the spread is wide, so this leans high; the report prints the number it used.
+- **Baselines:** every 15 s bar's own direction (momentum) and its opposite (fade). They should earn about 0: a check that the method has no built-in drift.
 - **Exploration (D55):** descriptive, no primary test; expectations written before the run, results in the private log.
 
 ## Build
