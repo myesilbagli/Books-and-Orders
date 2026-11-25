@@ -25,6 +25,10 @@ for c in "${cs[@]}"; do
     --swings "$out/c$c/swings.csv" 2> /dev/null &
   pids+=($!)
 done
+# And once with the founder's swing sizes (no --c), exactly what mm_sim's strategies see:
+# the candles, indicators and turn reads (D63; the reads use the 1 min swings) come from it.
+./build/release/cpp/chart_dump "$itch" "$symbol" "$out/chart.csv" 2> /dev/null &
+pids+=($!)
 for pid in "${pids[@]}"; do
   wait "$pid"  # one at a time, so a failed dump stops the script (set -e)
 done
@@ -37,6 +41,5 @@ structures=()
 for c in "${cs[@]}"; do
   structures+=(--structure "$c=$out/c$c/chart.csv,$out/c$c/swings.csv")
 done
-# Candles and indicators don't depend on c: take them from the c = 2 run.
-research/.venv/bin/python research/hub_export.py "$day" "$symbol" "$out/c2/chart.csv" \
+research/.venv/bin/python research/hub_export.py "$day" "$symbol" "$out/chart.csv" \
   "${runs[@]}" "${structures[@]}"

@@ -57,6 +57,26 @@ def read_chart(path, midnight):
     return chart
 
 
+READS = ("b1", "b2")  # the turn-read columns of the chart CSV (D63)
+
+
+def read_reads(path, midnight):
+    """The turn reads the 15 s bars completed (D63), oldest first: {time (the bar's start),
+    known (its end), read ("B1", "B2"), dir (+1 / -1)}. None from a chart without them."""
+    reads = []
+    with open(path, newline="") as f:
+        for r in csv.DictReader(f):
+            if r["timeframe"] != "15s":
+                continue
+            start = chart_time(midnight, r["time_et"])
+            for column in READS:
+                value = r.get(column) or ""
+                if value not in ("", "0"):
+                    reads.append({"time": start, "known": start + 15, "read": column.upper(),
+                                  "dir": int(value)})
+    return reads
+
+
 LABELS = {("H", 1): "HH", ("H", -1): "LH", ("H", 0): "EH", ("H", None): "H",
           ("L", 1): "HL", ("L", -1): "LL", ("L", 0): "EL", ("L", None): "L"}
 
@@ -123,6 +143,7 @@ def export(day, symbol, chart_csv, runs, out_dir, structures=None):
 
     for timeframe, bars in read_chart(chart_csv, midnight).items():
         _write_json(os.path.join(folder, f"chart_{timeframe}.json"), bars)
+    _write_json(os.path.join(folder, "reads.json"), read_reads(chart_csv, midnight))
     for name, path in runs.items():
         _write_json(os.path.join(folder, f"fills_{name}.json"), read_fills(path, midnight))
     for c, (c_chart, c_swings) in structures.items():

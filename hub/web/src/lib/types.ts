@@ -65,3 +65,11 @@ export interface Structure {
 export interface Index {
   days: Day[];
 }
+
+// A turn read a 15 s bar completed (D63): B1 a failed breakout, B2 a pullback ending.
+export interface TurnRead {
+  time: number; // the completing 15 s bar's start, chart seconds
+  known: number; // its end: when the read was known
+  read: 'B1' | 'B2';
+  dir: 1 | -1; // the way the read says the price goes
+}

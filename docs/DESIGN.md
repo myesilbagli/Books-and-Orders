@@ -66,6 +66,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | B1, failed breakout at a level: poke ≤ ¼ ATR, close back within 2 bars, read held 45 s (7d-2, step 2) | `cpp/include/orderbook/sim/turn_reads.hpp`, `cpp/src/sim/turn_reads.cpp` | done, D63 |
 | B2, the pullback ends at the EMA 20 or VWAP with the 1 min EMA stack, read held 45 s (7d-2, step 3) | `cpp/include/orderbook/sim/turn_reads.hpp`, `cpp/src/sim/turn_reads.cpp` | done, D63 |
 | B1/B2 inside `MarketState` (15 s bars, 1 min context), on every fill (`b1`, `b2`) and every chart row (`ema_mid`, `ema_long`, `b1`, `b2`) (7d-2, step 4) | `cpp/src/sim/market_state.cpp`, `cpp/src/sim/simulator.cpp`, `cpp/src/sim/fills_csv.cpp`, `cpp/src/sim/chart_csv.cpp` | done, D63 |
+| Hub: B1/B2 markers on every timeframe (Reads checkbox), `reads.json`; the hub's candles now come from a `chart_dump` run with the founder's swing sizes (7d-2, step 4) | `hub/web/src/lib/reads.ts`, `hub/web/src/App.tsx`, `research/hub_export.py`, `research/export_hub.sh` | done, D63 |
 | Trend/range signal for the market maker | — | milestone 6 |
 
 ## Data flow
@@ -929,6 +930,8 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - `on_trade` now closes the bars before counting the trade in the VWAP (a trade at a bar's end belongs to the next bar), so a bar closed there is read with the VWAP of the trades before it. No output changes: the VWAP is only read after the call.
   - Fills CSV: `b1`, `b2` at the end, the reads in force at the fill (0 when none). Chart CSV: `ema_mid`, `ema_long` (dollars), `b1`, `b2` (what a 15 s bar completed; empty on other timeframes).
   - Checked on a real day (4 Feb 2026, naive, 0 µs): every older column of all 39,219 fill rows and 27,385 chart rows, the swings file and the report are byte-identical (except the run time line).
+- **On the hub, for the founder's eye check:** `hub_export.py` writes `reads.json` (each read: its 15 s bar's start, when it was known, B1 or B2, its direction) from the 15 s rows. The hub draws them as arrows (B1 purple, B2 teal; down above the bar, up below) on the bar holding the last second of the completing 15 s bar: that bar on 15 s, its minute on 1 min, the second it became known on 1 s; equal reads in one longer bar show once. A "Reads" checkbox, on by default; fills stay hidden by default.
+  - The reads use the 1 min swings, so they depend on the 1 min swing size. `export_hub.sh` now runs `chart_dump` once more without `--c` (the founder's sizes, what `mm_sim` uses) and takes the candles, indicators and reads from it; the per-c runs still give the structure overlays.
 - **EMA 20 and 50 on every chart (`ema_mid`, `ema_long`):** added next to the existing 9 and 21, not replacing them, so every older output stays byte-identical. Brooks' EMA is the 20; the 50 completes the 9 / 20 / 50 stack.
 - **Exploration (D55):** descriptive, measured on the equivalent-lag scale (D62); expectations written before the run.
 

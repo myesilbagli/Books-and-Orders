@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import MarketChart from './components/MarketChart';
 import { groupFills, summarize } from './lib/fills';
-import { loadChart, loadFills, loadIndex, loadStructure } from './lib/data';
-import type { Bar, Fill, Horizon, Index, Structure, Timeframe } from './lib/types';
+import { loadChart, loadFills, loadIndex, loadReads, loadStructure } from './lib/data';
+import { readMarkers } from './lib/reads';
+import type { Bar, Fill, Horizon, Index, Structure, Timeframe, TurnRead } from './lib/types';
 
 // A file as loaded, with what it was loaded for, e.g. '2026-02-04_AAPL/1m'.
 interface Loaded<T> {
@@ -33,6 +34,8 @@ export default function App() {
   const [erHigh, setErHigh] = useState(0.6);
   const [bars, setBars] = useState<Loaded<Bar[]> | null>(null);
   const [fills, setFills] = useState<Loaded<Fill[]> | null>(null);
+  const [showReads, setShowReads] = useState(true);
+  const [reads, setReads] = useState<Loaded<TurnRead[]> | null>(null);
   const [fit, setFit] = useState(0); // bumped by the Full day button
   const [error, setError] = useState('');
 
@@ -72,6 +75,17 @@ export default function App() {
   }, [dayId, run]);
 
   useEffect(() => {
+    if (!dayId) return;
+    let current = true;
+    loadReads(dayId)
+      .then((r) => current && setReads({ key: dayId, data: r }))
+      .catch(() => current && setReads({ key: dayId, data: [] })); // a day exported before the reads
+    return () => {
+      current = false;
+    };
+  }, [dayId]);
+
+  useEffect(() => {
     if (!dayId || !showStructure) {
       setStructure(null);
       return;
@@ -97,6 +111,10 @@ export default function App() {
   // Recomputed only when its inputs change, not on every mouse move over the chart.
   const groups = useMemo(() => groupFills(shownFills, INTERVAL[timeframe], horizon), [shownFills, timeframe, horizon]);
   const summary = useMemo(() => summarize(shownFills, horizon), [shownFills, horizon]);
+  const readMarks = useMemo(
+    () => (showReads && barsReady && reads?.key === dayId ? readMarkers(reads.data, INTERVAL[timeframe]) : []),
+    [showReads, barsReady, reads, dayId, timeframe],
+  );
   const day = index?.days.find((d) => d.id === dayId);
 
   return (
@@ -128,6 +146,10 @@ export default function App() {
         </label>
         <label className="check">
           <input type="checkbox" checked={showFills} onChange={(e) => setShowFills(e.target.checked)} /> Fills
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={showReads} onChange={(e) => setShowReads(e.target.checked)} /> Reads
+          B1/B2
         </label>
         <label className="check">
           <input type="checkbox" checked={showBands} onChange={(e) => setShowBands(e.target.checked)} /> Bollinger
@@ -167,6 +189,7 @@ export default function App() {
         bars={bars?.data ?? []}
         fit={fit}
         groups={showFills ? groups : []}
+        reads={readMarks}
         timeframe={timeframe}
         horizon={horizon}
         showBands={showBands}

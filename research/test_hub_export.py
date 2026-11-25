@@ -135,6 +135,34 @@ class ScoreChanges(unittest.TestCase):
         self.assertEqual(hx.score_changes(bars), [{"time": 3, "score": 2}, {"time": 5, "score": 0},
                                                   {"time": 7, "score": -2}])
 
+class ReadReads(unittest.TestCase):
+    # The turn reads a 15 s bar completed (D63): one entry per read, with the bar's start
+    # (to draw it on that bar) and its end (when it was known). Zero and empty fields, and
+    # charts written before the reads, give none.
+    def test_one_entry_per_read(self):
+        header = CHART_HEADER.rstrip("\n") + ",er,ema_mid,ema_long,b1,b2\n"
+        columns = header.strip().split(",")
+
+        def row(timeframe, time_et, b1, b2):
+            fields = dict.fromkeys(columns, "")  # every indicator empty
+            fields.update(timeframe=timeframe, time_et=time_et, open="1", high="1", low="1",
+                          close="1", volume="0", b1=b1, b2=b2)
+            return ",".join(fields[c] for c in columns) + "\n"
+
+        with tempfile.TemporaryDirectory() as d:
+            path = write(d, "chart.csv", header + row("15s", "10:31:00", "0", "0") +
+                         row("15s", "10:31:15", "-1", "1") + row("1m", "10:31:00", "", ""))
+            reads = hx.read_reads(path, MIDNIGHT)
+        start = MIDNIGHT + 10 * 3600 + 31 * 60 + 15
+        self.assertEqual(reads, [{"time": start, "known": start + 15, "read": "B1", "dir": -1},
+                                 {"time": start, "known": start + 15, "read": "B2", "dir": 1}])
+
+    def test_older_charts_have_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = write(d, "chart.csv", CHART_HEADER +
+                         "15s,10:31:00,1,1,1,1,0,,,,,,,,,,,,\n")
+            self.assertEqual(hx.read_reads(path, MIDNIGHT), [])
+
 
 class Export(unittest.TestCase):
     # One folder per day, and an index that lists every day and its runs; a second export
@@ -154,6 +182,8 @@ class Export(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(day, "chart_1s.json")))
             self.assertTrue(os.path.exists(os.path.join(day, "chart_5m.json")))
             self.assertTrue(os.path.exists(os.path.join(day, "fills_naive_0us.json")))
+            with open(os.path.join(day, "reads.json")) as f:
+                self.assertEqual(json.load(f), [])  # an old chart: no reads, still a file
         self.assertEqual(index, {"days": [{"id": "2019-12-30_AAPL", "date": "2019-12-30",
                                            "symbol": "AAPL", "runs": ["as10_0us", "naive_0us"],
                                            "structure_c": []}]})

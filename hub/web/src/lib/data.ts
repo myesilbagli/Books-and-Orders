@@ -1,4 +1,4 @@
-import type { Bar, Fill, Index, Structure, Timeframe } from './types';
+import type { Bar, Fill, Index, Structure, Timeframe, TurnRead } from './types';
 
 // Loads the exporter's JSON. Each file is fetched once: the 1 s chart is ~6 MB, and
 // switching run or timeframe back and forth shouldn't download it again.
@@ -22,3 +22,4 @@ export const loadChart = (day: string, timeframe: Timeframe) => load<Bar[]>(`/${
 export const loadStructure = (day: string, timeframe: Timeframe, c: string) =>
   load<Structure>(`/${day}/structure_${timeframe}_c${c}.json`);
 export const loadFills = (day: string, run: string) => load<Fill[]>(`/${day}/fills_${run}.json`);
+export const loadReads = (day: string) => load<TurnRead[]>(`/${day}/reads.json`);

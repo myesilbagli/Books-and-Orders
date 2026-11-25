@@ -9,6 +9,8 @@ import {
   type IPriceLine,
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
+  type SeriesMarker,
+  type UTCTimestamp,
   type MouseEventParams,
   type Time,
 } from 'lightweight-charts';
@@ -24,6 +26,7 @@ interface Props {
   bars: Bar[];
   fit: number; // changes when the Full day button is pressed
   groups: FillGroup[];
+  reads: SeriesMarker<UTCTimestamp>[]; // the turn reads' markers (D63); empty when hidden
   timeframe: Timeframe;
   horizon: Horizon;
   showBands: boolean;
@@ -181,12 +184,12 @@ export default function MarketChart(props: Props) {
     handles.current?.erHigh.applyOptions({ price: props.erHigh });
   }, [props.erLow, props.erHigh]);
 
-  // One marker list for the candles: fills and swing labels, in time order.
+  // One marker list for the candles: fills, swing labels and turn reads, in time order.
   useEffect(() => {
     const swings = props.structure ? swingMarkers(props.structure.swings) : [];
-    const all = [...toMarkers(props.groups), ...swings].sort((a, b) => a.time - b.time);
+    const all = [...toMarkers(props.groups), ...swings, ...props.reads].sort((a, b) => a.time - b.time);
     handles.current?.markers.setMarkers(all);
-  }, [props.groups, props.structure]);
+  }, [props.groups, props.structure, props.reads]);
 
   // The score at each bar, for the legend; undefined while structure is off.
   const scoreByTime = useMemo(() => {
