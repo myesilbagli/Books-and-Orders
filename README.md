@@ -12,21 +12,18 @@ A limit order book, a Nasdaq ITCH 5.0 parser and a queue-aware market-making sim
 | 2 | Nasdaq TotalView-ITCH 5.0 binary parser | done |
 | 3 | Replay a full trading day (268.7 M messages) through the books, checked | done |
 | 4 | Market-making simulator: our quotes join the real queue | done |
-| 5 | Strategies (naive, Avellaneda–Stoikov, pull-when-thin), P&L split, bootstrap | done: [results](docs/RESULTS.md) |
-| 6 | The discretionary signal: chart indicators, market structure, levels | in progress |
+| 5 | Strategies (naive, Avellaneda–Stoikov, pull-when-thin), P&L split, bootstrap | done |
+| 6 | The discretionary signal: indicators, market structure, levels, price-action reads, tested on 2026 days | in progress: first hold-out test run (not confirmed) |
 
-## What milestone 5 found
+## What it has found so far
 
-One stock (AAPL) on one development day, 30 Dec 2019. Full numbers are in [RESULTS.md](docs/RESULTS.md).
+Updated after every round. The summary is in [RESULTS.md](docs/RESULTS.md); every test, with its expectations written before the run, is in the [trial log](docs/TRIALS.md).
 
-- **We earn about 1.0 ¢ a share of spread, and give back about 1.9 ¢ to adverse selection within 10 s.** Net: −0.84 ¢ a share, and the 95 % interval excludes zero. About 90 % of the adverse move comes in the first second.
-- **No strategy beat joining the touch per share.** Avellaneda–Stoikov and pull-when-thin lost fewer dollars only because they traded fewer shares.
-- **Latency is the one difference that showed up:** at 50 µs the controllable P&L is 0.16 ¢ a share worse, with an interval that excludes zero. Total P&L hid this.
-- **The fills say why:** 56 % of our shares fill as the whole price level breaks, just before the price moves through it.
-
-## First look at 2026
-
-The same baseline on 10 random AAPL days of 2026 ([table](docs/RESULTS.md#milestone-6-first-step-the-same-baseline-on-10-days-of-2026)): **adverse selection beats the spread on all 10 days**. Net −0.29 ¢ a share over 8.6 M shares, smaller than 2019's −0.84 ¢. This is the loss the milestone 6 signals try to cut.
+- **Joining the touch loses to adverse selection on every day tested:** about 1.2 ¢ a share of spread earned, 1.5 ¢ given back within 10 s (10 random AAPL days of 2026).
+- **Trend reads come too late.** The value of knowing the trend sits at its turn: half is gone 30 s later, all of it by 2 minutes, and swing-based reads confirm a turn about 2 minutes after it. EMA, VWAP and market-structure reads: 0 of 9 tests real.
+- **One price-action read stood out:** a failed breakout at a level, at the open. Too costly to trade as a taker (the open's round trip is about 7 ¢); as a market maker, pulling the quote it reads against cut the loss by $563 a day on the development days.
+- **Frozen and tested once on 10 new days: not confirmed.** +$351 a day, 95 % interval [−13, +769]: same direction, smaller, and not distinguishable from zero.
+- **Score:** 17 primary tests, 222 in all, 1 hold-out spent, nothing confirmed on new data yet.
 
 ## How the simulation stays honest
 
@@ -35,7 +32,8 @@ The same baseline on 10 random AAPL days of 2026 ([table](docs/RESULTS.md#milest
 - **Latency:** every action we take waits the stated delay.
 - **No look-ahead:** indicators see closed bars only. A swing counts only from the bar that confirmed it. A fill's snapshot excludes the trade that filled it.
 - **Statistics:** P&L is split into spread / adverse selection / inventory. Differences are judged with a paired block bootstrap.
-- **Tests are counted:** every hypothesis is written before its result, and every test is counted, so the false positives multiple testing produces aren't mistaken for findings.
+- **Tests are counted:** every hypothesis is written before its result in the public [trial log](docs/TRIALS.md), and every test is counted, so the false positives multiple testing produces aren't mistaken for findings.
+- **Confirmed once, on unseen days:** a candidate is frozen in writing, with its single test and pass mark, before its hold-out days are even bought; it is run once, and those days are then spent.
 - **Independent checks:** the bars and indicators match Databento's bars for the same day: volume identical in 100 % of minutes, indicator code to the last printed digit.
 
 ## How it fits together
@@ -65,7 +63,8 @@ fills CSV (each fill with the charts as they were at that moment)
 | `research/` | Python analysis: bootstrap, signal study, exports for the hub |
 | `hub/web/` | The chart hub: Vite + React + TypeScript + lightweight-charts |
 | `docs/DESIGN.md` | Every component and every design decision, numbered (D1, D2, …), with its reason |
-| `docs/RESULTS.md` | Milestone 5 results on one page |
+| `docs/RESULTS.md` | Where things stand, kept current, then each milestone's results |
+| `docs/TRIALS.md` | The trial log: every test, written before the run, the result added after |
 
 ## Build and run
 
@@ -79,7 +78,7 @@ cmake --preset release && cmake --build --preset release
 The market data isn't in the repo: it is Nasdaq's, and large. Two sources, read the same way:
 - **Nasdaq's sample ITCH 5.0 days** (`emi.nasdaq.com/ITCH`): the development day `12302019.NASDAQ_ITCH50`.
 - **Any day, one stock at a time, from Databento** (XNAS.ITCH, MBO). `research/dbn_to_itch.py` turns its records back into ITCH 5.0. On the development day, the converted file gives byte-identical simulator fills to Nasdaq's own file.
-- **The study days (milestone 6):** 10 development days of AAPL drawn at random from January-September 2026, and 10 hold-out days (9-20 Nov 2026) bought only once a rule is final. Each converted day must replay through the books with 0 errors and 0 orders left at the close.
+- **The study days (milestone 6):** 10 development days of AAPL drawn at random from January-September 2026, and 10 hold-out days (9-20 Nov 2026, AAPL and MSFT) bought only once a rule was final, and used once (26 Nov 2026). Each converted day must replay through the books with 0 errors and 0 orders left at the close.
 
 ```bash
 # or: a Databento MBO file for one stock, turned into ITCH 5.0

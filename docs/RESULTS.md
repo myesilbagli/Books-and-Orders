@@ -1,8 +1,46 @@
-# Results: milestone 5, market making on one replayed day
+# Results
 
-What the simulator found so far, on one page. Why each piece is built the way it is lives in [DESIGN.md](DESIGN.md) (decisions D24–D37); this page is what came out.
+What the project has found so far, kept current: this page is updated after every round. Each round's rule, expectations and full numbers are in the [trial log](TRIALS.md) (written before each run, results added after); why each piece is built the way it is, in [DESIGN.md](DESIGN.md).
 
-## Setup
+**Last updated: 26 Nov 2026**, after the first hold-out test (H1).
+
+## Where things stand
+
+The question: can a discretionary trader's read of the chart (trend or range, structure, levels, price action) make a market maker lose less to adverse selection? Tested on real Nasdaq data (AAPL; MSFT as a check), with queue-aware fills.
+
+1. **Joining the touch loses, every day, to adverse selection.** We earn about 1.2 ¢ a share of spread and give back about 1.5 ¢ within 10 s: −0.29 ¢ a share over 10 random days of 2026 (−0.84 ¢ on a 2019 day). Maker rebates (about 0.2 ¢) would not close the gap.
+2. **Latency is the one simulator setting that always matters:** 50 µs costs about 0.17 ¢ a share, on 10 of 10 days. It hurts through the stale quote being hit as a level breaks, not through queue position: a ladder of orders behind the touch doesn't help ([7b](TRIALS.md#round-7b-1-the-ladder-queue-position)).
+3. **Trend reads come too late to help the market maker.** Knowing the 1 min trend leg with hindsight would remove the first-second loss entirely; but half of that value is gone if the leg is known 30 s late, and all of it by 120 s. A swing-based read confirms a turn about 120 s after it ([7c](TRIALS.md#round-7c-the-delayed-oracle-curve-how-fast-must-a-trend-read-be)). So EMA trend, VWAP, market structure and strong-trend reads all came out as noise: 0 of 9 primary tests ([rounds 1, 2, 7a, 7d-1](TRIALS.md#test-budget)).
+4. **One price-action read stood out on the development days: a failed breakout at a level ("B1 trap") at the open.**
+   - Fills against it were 0.76 ¢ a share worse in the next second; the price moved +18 ¢ its way within 2 minutes, on 9 of 10 days ([7d-2](TRIALS.md#round-7d-2-price-action-at-levels-b1-trap-b2-pullback-end), [7e](TRIALS.md#round-7e-event-study-does-the-price-go-the-reads-way-far-enough-for-a-taker)).
+   - **As a taker it doesn't survive costs:** crossing the spread at the open costs about 7 ¢ a round trip; net +1.4 ¢ a share, interval [−10.5, +12.4] ([7f](TRIALS.md#round-7f-taker-backtest-b1-at-the-open)).
+   - **In the market maker** (pull the side B1 reads against, 09:30-10:30) it cut the loss by $563 a day on the development days, through inventory: not standing long into a fall that takes minutes ([7d-3](TRIALS.md#round-7d-3-the-market-maker-pulls-the-side-b1-reads-against)).
+5. **That rule was frozen and tested once on 10 new days (9-20 Nov 2026): not confirmed.** AAPL +$351 a day, 95 % interval [−13, +769], 7 of 10 days better: the same direction and channel, smaller (as expected after picking the best of several tries), and the interval misses zero by $13. MSFT, unchanged: +$32, noise ([H1](TRIALS.md#hold-out-h1-pull-the-side-b1-reads-against-at-the-open-on-new-days-frozen-before-buying)).
+
+**Score so far:** 17 primary tests, 222 in all (about 1 in 20 looks real by chance); 1 hold-out spent; **nothing confirmed on new data yet.** The method held: every expectation was written down first, and the one candidate that looked good was shrunk by fresh days instead of being believed.
+
+**Open:** a second, larger fresh-day test of B1, or a library of price-action setups (e.g. opening fakeouts) tested as a mid-speed taker across stocks ([ideas](TRIALS.md#ideas-to-try-later-not-run-yet)).
+
+## Rounds at a glance
+
+| round | question | verdict |
+|---|---|---|
+| [1](TRIALS.md#round-1-ema-trend-and-vwap-signal-study-stage-1), [2](TRIALS.md#round-2-market-structure-signal-study-stage-1) | Do EMA trend, VWAP, market structure pick out the losing fills? (one day) | noise, 0 of 6 |
+| [7a](TRIALS.md#round-7a-where-the-loss-comes-from-queue-level-broke-and-trend-oracle-vs-real-time) | Where does the loss come from: queue or trend? | both real (level broke; hindsight leg), neither tradable as is |
+| [7b](TRIALS.md#round-7b-1-the-ladder-queue-position) | Does a ladder (better queue place) help, at 0 or 50 µs? | no |
+| [7c](TRIALS.md#round-7c-the-delayed-oracle-curve-how-fast-must-a-trend-read-be) | How fast must a trend read be? | within ~30 s of the turn |
+| [7d-1](TRIALS.md#round-7d-1-fast-reads-already-in-the-fills-placed-on-the-delayed-oracle-curve) | Are any existing reads that fast? | no |
+| [7d-2](TRIALS.md#round-7d-2-price-action-at-levels-b1-trap-b2-pullback-end) | Price action at levels (B1 trap, B2 pullback end) | B1 at the open stands out; B2 no |
+| [7e](TRIALS.md#round-7e-event-study-does-the-price-go-the-reads-way-far-enough-for-a-taker) | Does the price go B1's way far enough for a taker? | at the open, +18 ¢ in 2 min |
+| [7f](TRIALS.md#round-7f-taker-backtest-b1-at-the-open) | B1 at the open as a real taker | not distinguishable from 0 after costs |
+| [7d-3](TRIALS.md#round-7d-3-the-market-maker-pulls-the-side-b1-reads-against) | Market maker pulls the side B1 reads against | +$563 a day (development days) |
+| [H1](TRIALS.md#hold-out-h1-pull-the-side-b1-reads-against-at-the-open-on-new-days-frozen-before-buying) | The same, frozen, on 10 new days | **not confirmed** (AAPL +$351 [−13, +769]) |
+
+## Milestone 5: market making on one replayed day
+
+The first results, on one day of 2019. Why each piece is built the way it is: [DESIGN.md](DESIGN.md) (decisions D24–D37).
+
+### Setup
 
 - **Data:** Nasdaq TotalView-ITCH 5.0, 30 Dec 2019, the full day. One stock, **AAPL**.
 - **Quoting:** 09:31 to 16:00 ET, 100 shares a side, inventory limit ±500 shares. Inventory is marked at the 16:00 mid (D28).
@@ -17,7 +55,7 @@ What the simulator found so far, on one page. Why each piece is built the way it
   - **pull θ:** naive, but drop a side whose share of the touch is below θ (D34).
 - **Caveat:** one development day, in-sample. These numbers say what happened on this day and what is noise on this day, not what holds on other days.
 
-## P&L split: where the money goes
+### P&L split: where the money goes
 
 Every fill's P&L splits exactly into three parts (D35):
 - **spread:** what we earn against the mid just before the fill;
@@ -34,7 +72,7 @@ Every fill's P&L splits exactly into three parts (D35):
 | naive, 50 µs | 470 K | 16.7 | +$4,569 (+0.97) | −1.72 | −$9,276 (−1.97) | +$1,341 | −$3,366 |
 | pull 0.2, 50 µs | 361 K | 30.7 | +$3,631 (+1.00) | −1.81 | −$7,505 (−2.08) | +$737 | −$3,138 |
 
-## Is a difference real? Block bootstrap
+### Is a difference real? Block bootstrap
 
 This table looks at the part a strategy controls: P&L per share at 10 s, which is spread plus adverse selection.
 - **Intervals:** 95 % intervals from 2,000 resamples of the day's 78 five-minute blocks.
@@ -52,7 +90,7 @@ This table looks at the part a strategy controls: P&L per share at 10 s, which i
 
 The verdicts don't change at a 1 s horizon, or with 1-minute or 15-minute blocks.
 
-## What we learned
+### What we learned
 
 1. **The loss is adverse selection, and it comes fast.**
    - We earn about 1 cent a share of spread and give back about 1.9 cents within 10 s. About 90 % of that comes in the first second.
@@ -73,14 +111,14 @@ The verdicts don't change at a 1 s horizon, or with 1-minute or 15-minute blocks
    - A 0.2 ¢ maker rebate takes the naive loss to −$2,859, and 0.3 ¢ takes it to −$2,391.
    - Breaking even would need 0.81 ¢ a share, about three times the best tier (D36).
 
-## Known limitations
+### Known limitations
 
 - **One day, one stock, in-sample.** Nothing here has been checked on a day it wasn't built on.
 - **One venue.** Nasdaq's own book is often wider than the consolidated best bid and offer.
 - **No stop loss or aggressive exit.** We only ever quote passively.
 - **The 0 µs pull results may be flattered.** A sweep that shows up as several same-timestamp executions lets the 0 µs simulator react between them, which a real system can't do. Not yet checked.
 
-## Next
+### Next (as planned then)
 
 **Milestone 6: the trend/range signal.**
 - Turn a discretionary read of trend versus range, and of levels, into rules that widen, skew or pull quotes.
@@ -90,7 +128,7 @@ The verdicts don't change at a 1 s horizon, or with 1-minute or 15-minute blocks
 
 After that, the optimization phase: more days (Databento), held-out test days, and tuning.
 
-## Reproduce
+### Reproduce
 
 ```bash
 cmake --preset release && cmake --build --preset release
@@ -100,7 +138,7 @@ research/run_m5.sh data/itch/12302019.NASDAQ_ITCH50   # 7 runs + bootstrap table
 research/run_m5.sh data/itch/12302019.AAPL.ITCH50
 ```
 
-# Milestone 6, first step: the same baseline on 10 days of 2026
+## Milestone 6, first step: the same baseline on 10 days of 2026
 
 The 10 development days (D53), naive, 0 µs, quoting 09:31-16:00. Cents per share, adverse selection over 10 s, P&L in dollars with inventory marked at the 16:00 mid. Descriptive only: no test is counted (D55).
 

@@ -6,7 +6,7 @@ A limit order book and matching engine in C++20 (`cpp/`), and on top of it a mar
 
 Build a market-making model that uses discretionary market reading (trend days vs range days) as a signal, and test it honestly: replay real Nasdaq ITCH days order by order, put the strategy's quotes into the real queue, and count a fill only when the queue ahead of it is used up. Success is measured with markouts and a P&L split into spread captured, adverse selection and inventory.
 
-What has come out so far, on one page: [RESULTS.md](RESULTS.md).
+Where things stand, kept current: [RESULTS.md](RESULTS.md). Every test, written before its run: [TRIALS.md](TRIALS.md) (D67).
 
 Why this order: the simulator is only as honest as the book underneath it. Most retail backtests assume a fill the moment price touches a level; a queue-aware replay is what removes that bias.
 
@@ -48,7 +48,7 @@ Why this order: the simulator is only as honest as the book underneath it. Most 
 | Chart snapshot on every fill (1 s + 1 min indicators, VWAP) + 15 columns in the fills CSV | `cpp/include/orderbook/sim/markout.hpp`, `cpp/src/sim/simulator.cpp`, `cpp/include/orderbook/sim/fills_csv.hpp`, `cpp/src/sim/fills_csv.cpp` | done (6c-2a), D45 |
 | Local research hub, phase 1: candles, EMA 9/21, VWAP, Bollinger, Stoch RSI, our fills colored by markout; exporter to JSON | `hub/web/`, `research/hub_export.py`, `research/test_hub_export.py` | done (6c-2b), D46 |
 | Hub: market structure (ZigZag, HH/HL labels, shading) on 1 s / 15 s / 1 min / 5 min, swing size c picked by eye; `export_hub.sh` | `hub/web/src/lib/structure.ts`, `hub/web/src/components/MarketChart.tsx`, `research/export_hub.sh`, `research/hub_export.py` | done (round 2, 2b), D50 |
-| Signal study: do chart readings (EMA trend 1m / 1s, VWAP) pick out the losing fills? (stage 1) | `research/signal_study.py`, `research/test_signal_study.py` | round 1 run (private log), D47 |
+| Signal study: do chart readings (EMA trend 1m / 1s, VWAP) pick out the losing fills? (stage 1) | `research/signal_study.py`, `research/test_signal_study.py` | round 1 run ([trial log](TRIALS.md)), D47 |
 | Signal study round 2: market structure A / B / C, c per timeframe | `research/signal_study.py --round 2`, `cpp/include/orderbook/sim/market_state.hpp` | built, not yet run, D51 |
 | ATR + market structure: ZigZag swings scaled by ATR, HH/HL score (round 2) | `cpp/include/orderbook/sim/indicators.hpp`, `cpp/include/orderbook/sim/structure.hpp`, `cpp/src/sim/structure.cpp` | done (6c-2a-1), D48 |
 | Structure in every chart (1 s, 15 s, 1 min, 5 min), on every fill, in the CSVs; `chart_dump --c --swings` | `cpp/include/orderbook/sim/chart_feed.hpp`, `cpp/src/sim/market_state.cpp`, `cpp/src/sim/fills_csv.cpp`, `cpp/src/sim/chart_csv.cpp`, `cpp/tools/chart_dump.cpp`, `research/hub_export.py` | done (6c-2a-2), D49 |
@@ -679,9 +679,9 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **The tests are counted:** 3 signals × 2 horizons × 3 periods (whole day, morning, afternoon) = 18 tests.
   - The 3 at 10 s over the whole day are the primary ones. They also get a Bonferroni-corrected interval: 98.3 % for 3 tests.
   - The rest support the primary ones: a real effect should show in both halves of the day.
-  - The count runs across rounds, in the private trial log.
+  - The count runs across rounds, in the trial log ([TRIALS.md](TRIALS.md), D67).
   - On random synthetic fills, with 5 signals (30 tests), 1 came out "flagged worse" at 95 %. That is what multiple testing does, and why only the primary tests count.
-- **Readings, not conclusions:** −1 means "low" whether it reads as trend (bad for a buy) or mean reversion (good). Which way the founder expects each signal to go is written in the private trial log **before** the study runs on the day. The script only measures.
+- **Readings, not conclusions:** −1 means "low" whether it reads as trend (bad for a buy) or mean reversion (good). Which way the founder expects each signal to go is written in the trial log ([TRIALS.md](TRIALS.md), D67) **before** the study runs on the day. The script only measures.
 - **An upper bound:** "without the flagged fills" ignores that stepping away changes our queue position and the fills we'd get instead. A C++ trial (stage 2) answers that.
 - **Fills without the indicator** (warming up, VWAP before 09:30) are left out of that signal's test and counted.
 
@@ -784,7 +784,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **One stock for now:** AAPL, on which the converter (D52) and every result so far stand. A rule that passes on AAPL is then checked once on MSFT, unchanged. A basket comes in milestone 7.
 - **Recorded before any of these days was downloaded.** Cost: $8.48 for the 20 days, 7.6 GB before compression.
 - **Update, 24 Nov 2026: the hold-out is bought only when a rule is final.** Data that isn't on disk can't be looked at by accident, and the money waits until it has a use. The 10 development days were bought on 24 Nov for $5.51 (busier days than the hold-out, so more than half of $8.48). The hold-out stays these 10 days, decided now.
-- **Update, 26 Nov 2026: the hold-out is used.** Bought for $5.86 (AAPL and MSFT, 9-20 Nov, 1.7 GB as downloaded; all 20 days pass the replay check of D54) after one candidate was frozen in writing with its single primary test and pass mark (D66's `PullOnRead`, B1 at 09:30-10:30, P&L per day vs naive). Run once; the result is in the private trial log (D47). These days are now spent: any later confirmation needs new days nobody has looked at.
+- **Update, 26 Nov 2026: the hold-out is used.** Bought for $5.86 (AAPL and MSFT, 9-20 Nov, 1.7 GB as downloaded; all 20 days pass the replay check of D54) after one candidate was frozen in writing with its single primary test and pass mark (D66's `PullOnRead`, B1 at 09:30-10:30, P&L per day vs naive). Run once; the result is in the trial log ([TRIALS.md](TRIALS.md), H1). These days are now spent: any later confirmation needs new days nobody has looked at.
 
 ### D54. The 10 development days arrive: Databento's midnight snapshot, and a replay check per day
 
@@ -800,7 +800,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 ### D55. Explore freely on the development days, confirm once on the hold-out; the 2026 baseline
 
 - **Founder, 24 Nov 2026:** a strict decision is too hard this early; we need to try things, and trial and error may find something. Two modes, replacing the "primary tests with a Bonferroni level" of D47 and D51 for the development days:
-  - **Exploration, on the 10 development days:** any number of tries (signals, combinations, c, thresholds), every one written in the private trial log. Intervals are shown, but there is no pass/fail level: they only rank candidates.
+  - **Exploration, on the 10 development days:** any number of tries (signals, combinations, c, thresholds), every one written in the trial log ([TRIALS.md](TRIALS.md), D67). Intervals are shown, but there is no pass/fail level: they only rank candidates.
   - **Confirmation, on the 10 hold-out days (D53):** 1-2 candidates, frozen before the data is bought, tested once, with a Bonferroni level over the candidates.
   - **Why:** a single day already showed that a few strict tests end in "can't tell". The hold-out is what makes free exploration safe: the best of many tries looks better than it is ("winner's curse"), and days it never saw correct that.
   - **Always reported together:** cents per share **and** shares traded. Trading less makes the loss per share smaller without any edge (milestone 5: Avellaneda-Stoikov and pull-when-thin).
@@ -878,7 +878,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - Fills inside a turning bar (before or after the extreme?) and after the last swing (its leg never finished) are left out.
 - **The same swings in real time:** the leg since the last *confirmed* swing. Oracle minus confirmed = what the confirmation lag costs, with nothing else changed.
 - **Five splits, each flagged vs rest with the signal study's machinery (D56):** level broke (nothing left at our price as we filled), oracle leg, confirmed leg, 1 min structure (round 2's A), strong trend (±2 with ER 1m ≥ 0.6, the hub's opening threshold). Plus a cross table, level broke × oracle leg, to see whether the queue loss is the trend loss in disguise.
-- **Exploration (D55):** questions and expectations written before the run, results in the private log; 5 primary tests, 30 in all.
+- **Exploration (D55):** questions and expectations written before the run, results in the trial log; 5 primary tests, 30 in all.
 - **What it decides:** whether the next step is a ladder (more fills while the level holds, 7b-1), a trend strategy, or a faster trend read.
 
 ### D60. The ladder: orders waiting behind the touch, to be ahead when the price gets there
@@ -892,7 +892,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **One execution fills at most its own size:** the aggressor reaches our better prices first, so those fill first, and each executed share fills one of ours at most.
 - **Why the simulator builds the ladder, not the strategy:** every strategy (naive, Avellaneda-Stoikov, the pull rule, a later trend rule) gets it unchanged, and `levels = 1` is the old simulator: the milestone 5 runs and the 10-day baseline come out byte-identical (fills CSVs, reports and bootstrap tables; only the run time line changes).
 - **Data structure:** one `QuoteSide` per level in a `std::vector`, at most 8 (`kMaxLevels`); the per-message bookkeeping uses `std::array<bool, 8>` on the stack, so nothing is allocated on the hot path. A handful of orders, so a linear scan beats a map.
-- **Compared paired:** `research/compare_runs.py` takes other runs minus a base run, cents a share within each day, with the signal study's stratified block bootstrap (D56): the same 5 min blocks for both runs. Plus shares traded and the share filled as the level broke. Exploration (D55): expectations written before the run, results in the private log; 2 primary tests at 0 µs, 1 more at 50 µs (`LATENCY_US`), where a ladder already queued at the next level might have offset arriving late.
+- **Compared paired:** `research/compare_runs.py` takes other runs minus a base run, cents a share within each day, with the signal study's stratified block bootstrap (D56): the same 5 min blocks for both runs. Plus shares traded and the share filled as the level broke. Exploration (D55): expectations written before the run, results in the trial log; 2 primary tests at 0 µs, 1 more at 50 µs (`LATENCY_US`), where a ladder already queued at the next level might have offset arriving late.
 
 ### D61. How fast would a trend read have to be? The delayed-oracle curve (round 7c)
 
@@ -907,7 +907,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Why:** round 7c gives a ruler: the 1 s gap of a trader who learns the hindsight 1 min leg L seconds late, from L = 0 (the oracle) to the lag where it is worth nothing. Any real-time read can be put on it: a read whose fills-against-it gap equals the 30 s point is "as good as knowing the leg 30 s late". One number per read, comparable across very different reads (structure, EMAs, later candle patterns and order flow).
 - **Equivalent lag:** straight lines between the curve's points, read only up to where the curve first reaches 0 (past that point a later belief is the wrong leg, and the curve turns back). A gap at or below the oracle's is 0 s; a gap at or above 0 is "nothing". The curve is computed in the same run, from the same fills and the same bootstrap draws.
 - **Also per read:** coverage (share of shares it gives a direction to) and agreement with the hindsight leg where both have one. Agreement alone is not the measure: a read can match the leg most of the time and still be worth nothing, if it is right mid-leg and wrong at the turns.
-- **Reads in this round:** the ones already in every fill: structure on 1 min, 15 s and 1 s; a 15 s strong trend (±2 and ER ≥ 0.6); the EMA 9/21 trend on 1 s and 1 min; the confirmed 1 min leg (D59). Exploration, descriptive (no primary test); results in the private log. Next (7d-2): reads that see a turn as it happens, among them price-action setups the founder picks.
+- **Reads in this round:** the ones already in every fill: structure on 1 min, 15 s and 1 s; a 15 s strong trend (±2 and ER ≥ 0.6); the EMA 9/21 trend on 1 s and 1 min; the confirmed 1 min leg (D59). Exploration, descriptive (no primary test); results in the trial log. Next (7d-2): reads that see a turn as it happens, among them price-action setups the founder picks.
 
 ### D63. Reads that see a turn as it happens: price-action setups at levels (round 7d-2)
 
@@ -942,7 +942,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - The founder's eye check on the hub, 30 Jul 2026: the B1s sit at the local tops and bottoms. Seen too: in a steep slide (10:33-10:34) B1 read "up" four times at an earlier swing low that the price then broke; Brooks' point that reversal attempts fail inside a tight channel. The tight-channel veto (V) is the planned answer; first the reads are measured as they are.
 - **EMA 20 and 50 on every chart (`ema_mid`, `ema_long`):** added next to the existing 9 and 21, not replacing them, so every older output stays byte-identical. Brooks' EMA is the 20; the 50 completes the 9 / 20 / 50 stack.
 - **Measured (`turn_reads.py`):** B1 and B2 join 7d-1's reads, read from the fills' `b1`, `b2` (signal_study now reads both; older CSVs read them as missing). The same table (1 s and 10 s gap within days, block bootstrap, equivalent lag on the delayed-oracle curve, coverage, agreement with the hindsight leg), then the price-action reads again per session of the founder's map: open 9:30-10:30, late morning to 12:00, lunch to 14:00, power to 16:00 (each day's fills cut to the session, then the same bootstrap).
-- **Exploration (D55):** descriptive, no primary test; expectations written before the run, results in the private log.
+- **Exploration (D55):** descriptive, no primary test; expectations written before the run, results in the trial log.
 
 ### D64. After a read fires, does the price go its way far enough for a taker? (round 7e)
 
@@ -950,7 +950,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Rule (`research/event_study.py`):** every B1 / B2 read is an event at the end of the 15 s bar that completed it (when it was known). The mid's move the read's way 10, 30, 60, 120 and 300 s later, from the 1 s bars of the chart CSV (the mid at t is the close of the 1 s bar ending at t). Mean over events, with a 95 % interval from 5 min blocks resampled within each day (events in one block move together); and the share of events beating the round trip. Whole day, and per session of the founder's map.
 - **Cost:** half the spread in and half out plus the take fee each way (about 0.3 c a share). The half spread is read off the naive fills, which rest at the touch: |price − mid|. Fills come more often when the spread is wide, so this leans high; the report prints the number it used.
 - **Baselines:** every 15 s bar's own direction (momentum) and its opposite (fade). They should earn about 0: a check that the method has no built-in drift.
-- **Exploration (D55):** descriptive, no primary test; expectations written before the run, results in the private log.
+- **Exploration (D55):** descriptive, no primary test; expectations written before the run, results in the trial log.
 
 ### D65. A taker on the replay: does a read survive real fills? (round 7f)
 
@@ -959,7 +959,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **The book as it was:** the bot is asked before each message of the stock changes the book, so an order that arrived since the previous message sees exactly the state it would have met. Our orders never change the replay (a 100-share order is small next to AAPL's depth; the sweep still pays for the levels it would take).
 - **Read with the same charts as everything else:** the tool runs `MarketState` with the founder's settings, so the reads are the ones `mm_sim` and `chart_dump` produce.
 - **Measured (`taker_summary.py`):** trades, win rate after fees (0.3 c a share each way), mean net cents a share with an interval from resampling trades within days, days positive, worst day, worst trade, total dollars. `run_taker.sh` runs one configuration on every day.
-- **Exploration (D55):** descriptive; expectations written before the run, results in the private log.
+- **Exploration (D55):** descriptive; expectations written before the run, results in the trial log.
 
 ### D66. The market maker pulls the side a turn read is against (round 7d-3)
 
@@ -967,7 +967,19 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Rule (`PullOnRead`, `mm_sim --pull-read b1|b2 [--read-window HH:MM-HH:MM]`):** a decorator, like the thin-touch pull (D34): it asks the inner strategy where to quote, then takes away the bid while the read is −1 and the ask while it is +1, only inside the window (all day by default). It reads `MarketState::b1/b2(now)`, the same reads every other tool sees. When the read ends the quote comes back at the back of the queue.
 - **Why a decorator:** it fits on any strategy (naive, Avellaneda-Stoikov, the thin-touch pull, the ladder) without changing it, and stacks with the others.
 - **Measured:** `run_days.sh` runs (all day; 09:30-10:30 only), compared with naive by `compare_runs.py` (cents a share within days, paired blocks, D60) and by P&L per day.
-- **Exploration (D55):** 2 primary tests (10 s cents a share, whole day); results in the private log.
+- **Exploration (D55):** 2 primary tests (10 s cents a share, whole day); results in the trial log.
+
+### D67. The trial log is public; results, trial log and README are living documents
+
+- **Founder, 26 Nov 2026 (in chat):** "trialsi public yapabiliriz. yani bu trials ve results surekli guncellenen structure olmali. readme de oyle. cunku cvme linki koyacagim ama surekli gelistirmeye devam edecegiz" (we can make the trials public; trials and results should be a structure that is updated all the time, and so should the README, because I'll put the link on my CV but we'll keep developing it).
+- **Replaces** the private trial log of D47 and D55: the log moves to [`docs/TRIALS.md`](TRIALS.md), with its full history.
+- **Three documents, three jobs, each updated after every round:**
+  - `docs/TRIALS.md`: the lab notebook. An entry is written before the run (question, rule, primary test and pass mark, expectations); the result is added after and the entry isn't edited again; a correction gets a new dated line. The test budget table at the top counts every test.
+  - `docs/RESULTS.md`: the state of knowledge. "Where things stand" at the top is rewritten when a result changes it, with the date; each milestone's tables stay below.
+  - `README.md`: the front page. Its status table and "What it has found so far" follow RESULTS.md, in short.
+- **Why public:** pre-registration is only worth something if others can check that the expectation came before the result; failed tests in the open are what make the one that passes believable.
+- **Still private:** the founder's own notes (`notes/`), and the synthesis of his Brooks notes.
+- **The hold-out script** (`research/holdout_compare.py`, H1) is committed byte-identical to the frozen file, so its hash in the log can be checked.
 
 ## Build
 
