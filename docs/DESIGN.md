@@ -784,6 +784,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **One stock for now:** AAPL, on which the converter (D52) and every result so far stand. A rule that passes on AAPL is then checked once on MSFT, unchanged. A basket comes in milestone 7.
 - **Recorded before any of these days was downloaded.** Cost: $8.48 for the 20 days, 7.6 GB before compression.
 - **Update, 24 Nov 2026: the hold-out is bought only when a rule is final.** Data that isn't on disk can't be looked at by accident, and the money waits until it has a use. The 10 development days were bought on 24 Nov for $5.51 (busier days than the hold-out, so more than half of $8.48). The hold-out stays these 10 days, decided now.
+- **Update, 26 Nov 2026: the hold-out is used.** Bought for $5.86 (AAPL and MSFT, 9-20 Nov, 1.7 GB as downloaded; all 20 days pass the replay check of D54) after one candidate was frozen in writing with its single primary test and pass mark (D66's `PullOnRead`, B1 at 09:30-10:30, P&L per day vs naive). Run once; the result is in the private trial log (D47). These days are now spent: any later confirmation needs new days nobody has looked at.
 
 ### D54. The 10 development days arrive: Databento's midnight snapshot, and a replay check per day
 
