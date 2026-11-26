@@ -690,7 +690,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 - **Why:** round 1 showed the EMA order can't tell a trend from a range: it calls every moment either up or down (D47). The founder reads trend from structure (higher highs and higher lows), with the EMAs as support. This turns that read into code, as he described it.
 - **Swing = a meaningful pullback (ZigZag):** a high is confirmed once a later bar's low is at least delta below it; a low, once a later high is delta above it. It runs on closed bars' highs and lows, so a 1 min structure is what the 1 min chart shows.
 - **Delta = c × ATR(14) of the same bars.** A fixed size would make the open's noise look like swings and hide the afternoon's real ones. ATR follows the market, and the same rule on 15 s, 1 min and 5 min bars gives each chart its own structure: the founder's fractal hypothesis, as code. ATR is TradingView's (Wilder, gaps included), so it can be checked on a chart.
-- **Score = sign(high₂ − high₁) + sign(low₂ − low₁):** +2 up, −2 down, anything else a range. It changes only when a swing is confirmed. So an uptrend ends at the first lower high (score 0), and a downtrend needs a lower low after it (−2). Dipping under the last low isn't enough. This is the founder's call: "yeni LH/LL oluşması daha sağlıklı".
+- **Score = sign(high₂ − high₁) + sign(low₂ − low₁):** +2 up, −2 down, anything else a range. It changes only when a swing is confirmed. So an uptrend ends at the first lower high (score 0), and a downtrend needs a lower low after it (−2). Dipping under the last low isn't enough. This is the founder's call: waiting for a new lower high or lower low is the sounder rule.
 - **No look-ahead:** a swing is known only at the end of the bar that confirmed it (`confirmed_ns`), always later than the bar that made it.
 - **Two ambiguities, resolved conservatively:**
   - A bar that makes a new extreme can't also confirm it: inside one bar the order of high and low is unknown.
@@ -723,7 +723,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
   - carry the previous day's bars over;
   - use a smaller c for 5 min.
   Any of them changes the round 1 inputs slightly, so it's recorded before round 2 runs.
-- **Resolved: 5 min is parked** (founder, 23 Nov 2026: "hft için çok üst bir time frame gibi duruyor… şimdilik park edilebilir"). With the charts started at 04:00 the 5 min score does cover the session, but:
+- **Resolved: 5 min is parked** (founder, 23 Nov 2026: too high a timeframe for high-frequency work; it can be parked for now). With the charts started at 04:00 the 5 min score does cover the session, but:
   - premarket is thin: 34 K shares from 04:00 to 09:30, against 5.9 M in the regular session;
   - the 5 min structure is far too slow for market making: with 11 swings all day, it called 72 % of the session "down" and saw the 10:15-12:00 rally (about $7) only at 13:55.
   The 5 min chart stays in the data and on the hub, but round 2 doesn't test it, and the charts still start at 09:00. 1 min is the primary timeframe; 15 s is secondary (the fractal question).
@@ -738,7 +738,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 
 ### D51. Swing size per timeframe, and round 2 of the signal study
 
-- **c picked by eye, with the fills hidden** (founder, 23 Nov 2026): **1.5 on 1 min** ("iyi duruyor") and **2 on 15 s** ("1.5 biraz noisy"). `MarketStateConfig::swing_c` holds one c per timeframe; 1 s and 5 min keep 2 and aren't tested. `chart_dump --c` still sets one value for all, for the hub's side-by-side views.
+- **c picked by eye, with the fills hidden** (founder, 23 Nov 2026): **1.5 on 1 min**, and **2 on 15 s**, where 1.5 looked too noisy. `MarketStateConfig::swing_c` holds one c per timeframe; 1 s and 5 min keep 2 and aren't tested. `chart_dump --c` still sets one value for all, for the hub's side-by-side views.
 - **Round 2 tests** (`signal_study.py --round 2`). 1 min is primary; 15 s supports it (the fractal question):
 
   | test | flagged fills | the rest |
@@ -971,7 +971,7 @@ AAPL, 30 Dec 2019, quoting 09:31 to 13:38 ET (the part of the file downloaded at
 
 ### D67. The trial log is public; results, trial log and README are living documents
 
-- **Founder, 26 Nov 2026 (in chat):** "trialsi public yapabiliriz. yani bu trials ve results surekli guncellenen structure olmali. readme de oyle. cunku cvme linki koyacagim ama surekli gelistirmeye devam edecegiz" (we can make the trials public; trials and results should be a structure that is updated all the time, and so should the README, because I'll put the link on my CV but we'll keep developing it).
+- **Founder, 26 Nov 2026:** the trial log can be made public. The trial log, the results and the README should be living documents, updated continuously, because the repository will be linked from his CV while development continues.
 - **Replaces** the private trial log of D47 and D55: the log moves to [`docs/TRIALS.md`](TRIALS.md), with its full history.
 - **Three documents, three jobs, each updated after every round:**
   - `docs/TRIALS.md`: the lab notebook. An entry is written before the run (question, rule, primary test and pass mark, expectations); the result is added after and the entry isn't edited again; a correction gets a new dated line. The test budget table at the top counts every test.

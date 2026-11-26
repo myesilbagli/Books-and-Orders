@@ -2,7 +2,7 @@
 
 Every idea tested on the data, in the order it was tried. Each entry is written **before** the run: the question, the rule and its parameters, the primary test and its pass mark, and the expectations (Claude's, which writes the code, and the founder's). The result is added **after**, below it, and the entry is not edited again; a correction gets a new dated line. Failed ideas stay in. This is what keeps the exploration honest: with many tries, some look real by chance, so every test is counted in the budget below (D47, D55). Public since 26 Nov 2026 (D67).
 
-- The founder's expectations are quoted as he wrote them, in Turkish, with the reading used in English after each.
+- The founder's expectations were written in Turkish before each run; they appear here as formal English paraphrases, with the reading used for the test after each (reworded 26 Nov 2026; content and dates unchanged; the original wording is in the git history at commit 5759bc5).
 - "Real" = the 95 % interval excludes 0. ¢ = cents a share. Days, data and methods: [DESIGN.md](DESIGN.md). The current state of knowledge, on one page: [RESULTS.md](RESULTS.md).
 
 ## Test budget
@@ -37,18 +37,18 @@ At 95 %, about 1 test in 20 looks real by chance. Every primary test counts here
 **Primary test:** 10 s P&L per share, flagged minus rest, whole day (dev day 30 Dec 2019, AAPL, naive 0 µs).
 
 **Hypotheses (founder, 23 Nov 2026, before any result):**
-- EMAs alone: "trend var demeye asla yetmiyor emalar, yatay piyasada cok noisy calisiyor. bunlardan eminim. gercekten saglam bir trend oldugunda hani duzgun calisiyor, cok guvenilebilir bir sey cikmayabilir bu durumdan dolayi, sadece test etmek icin okeyim ama"
-  - Earlier: "1m trend bize bir seyler anlatabilir"
+- EMAs alone: the founder was confident that the EMAs alone cannot identify a trend. They are noisy in sideways markets and work properly only in a clear trend, so the result may not be reliable; he agreed to test them nonetheless.
+  - Earlier, he had suggested that the 1 min trend might carry some information.
   - Read as: 1m trend, at most a small difference (flagged worse), because the EMA rule mixes range days in.
-- 1s trend: "1 saniyede hele cok noisy olacagindan eminim."
+- 1s trend: he was confident that the 1 s trend would be too noisy.
   - Read as: no difference.
-- VWAP: "vwap olayi da kritik yani cok fazla case var dayi ya, vwap alti net kotu veya vwap alti net iyi demek dogru degil bence su an. yani bunlar cok degisken seyler anlatabildim mi"
+- VWAP: he considered VWAP important but highly context-dependent: being below VWAP is neither clearly bad nor clearly good on its own.
   - Read as: no difference on its own. What being below VWAP means depends on the context (rejected from it or reclaiming it), so VWAP is a level, not a direction.
   - Round 3 candidate: VWAP as a key level (rejection vs reclaim).
-- Beyond round 1: "ben market structure'in daha iyi calisacagina inaniyorum. emalar bir destek mekanizmasi gibi."
+- Beyond round 1: he expected market structure to work better, with the EMAs as a supporting filter.
   - Round 2 candidate: market structure (swings, HH/HL), with the EMAs as a confirming filter.
 
-**Dropped before testing (not counted):** Bollinger %B and Stoch RSI. "bollinger ve stochastic cok iyi calismayabilir onlari gozardi edebiliriz su an" (Bollinger and Stochastic may not work well; we can ignore them for now.)
+**Dropped before testing (not counted):** Bollinger %B and Stoch RSI. The founder expected neither to work well and chose to leave them out for now.
 
 **Result (23 Nov 2026, `data/sim/signals/round1_naive_0us.txt`):** all 3 primary tests are noise. The hypotheses held.
 
@@ -69,11 +69,11 @@ At 95 %, about 1 test in 20 looks real by chance. Every primary test counts here
 **Definitions (D48-D50):** ZigZag swings on closed bars, a swing = a pullback of c x ATR(14). Score = sign(high2 - high1) + sign(low2 - low1): +2 up, -2 down, else range. Changes only at a confirmed swing.
 
 **Swing size c, chosen by eye on the hub with the fills hidden (founder, 23 Nov 2026, before any result):**
-- 1 min: **c = 1.5**. "1m icin 1.5 iyi duruyor, ama bunlari daha sonra boyle guzel bir motorla farkli kombinasyon deneriz zaten ama su an bu iyi gozukuyor" (1.5 looks good for 1 min; we'll try other combinations later with the engine, but this looks right for now.)
-- 15 s: **c = 2**. "15 snde 1.5 biraz noisy duruyor 2 ye daha fit gibiyim." (On 15 s, 1.5 looks a bit noisy; 2 fits better.)
+- 1 min: **c = 1.5**. The founder judged 1.5 a good fit for 1 min; other combinations can be tried later with the engine.
+- 15 s: **c = 2**. He judged 1.5 too noisy on 15 s and 2 a better fit.
 - 5 min: parked (D49). 1 s: not tested (noise in round 1, 3,278 swings at c = 2).
 
-**Founder's read of the chart:** "bazi yerlerde trendler cok iyi calisiyor, baya iyi yani akiyor, range yapilan yerlerde de guzel bir range donuyor. mesela 9.30 10.30 arasi 9.35 9.39 arasi saglam bi downtrend, sonra 9.40-10.10 arasi bi range, sonra yine bi downtrend." (In places the trends work very well and flow, and in ranges it shows a clean range: e.g. 09:35-09:39 a solid downtrend, then 09:40-10:10 a range, then a downtrend again.)
+**Founder's read of the chart:** in some stretches the trends are clean and flow well, and the ranges are clear. For example: a solid downtrend from 09:35 to 09:39, a range from 09:40 to 10:10, then another downtrend.
 - Note: on the hub the real-time score in 09:40-10:10 alternates down and range. The eye sees the finished box; the algorithm only the past. Round 2 measures whether the real-time version still helps.
 
 **Planned tests (1 min primary, 15 s secondary):**
@@ -82,8 +82,8 @@ At 95 %, about 1 test in 20 looks real by chance. Every primary test counts here
 - C. Regime: fills in a range (score not +-2) vs fills in a trend (+-2).
 
 **Hypotheses:**
-- C: "range icin market making mantken daha iyi calismali kesinlikle". Read as: range fills better than trend fills.
-- A and B (founder, 23 Nov 2026, before the run): "yani trend oldugunda trend yonunun tersine market making yapmak tabii mantikli durmuyor yani edgesel problem cikiyor bence confirmliyorum, ama her seye supheci yaklasmaya calisiyorum dostum." (Market making against the trend's direction doesn't make sense, an edge problem; I confirm it, but I try to be sceptical of everything.)
+- C: the founder expected market making to work clearly better in a range. Read as: range fills better than trend fills.
+- A and B (founder, 23 Nov 2026, before the run): he expected market making against the trend's direction to be unsound, a structural loss of edge, while remaining sceptical of every assumption.
   - A: fills against the 1 min structure are clearly worse than the rest, a clearer gap than round 1's EMA order.
   - B: with the EMAs agreeing, the gap is larger (fewer but cleaner trends; wider intervals).
 
@@ -292,7 +292,7 @@ By session (against minus rest, 1 s; 10 s):
 
 Written 25 Nov 2026, **before** running. Same 10 days; the reads exactly as in 7d-2.
 
-- **Why (founder, 25 Nov):** "can price action or harder math improve the current system; if it comes out negative whatever we do, turning it toward the discretionary direction makes more sense to me." 7d-2 measured B1 relative to other fills (MM view). A directional trader needs the absolute move after the read to beat the spread and fees.
+- **Why (founder, 25 Nov):** the founder asked whether price action or more rigorous mathematics can improve the current system; if every attempt remains negative, he considers a turn toward discretionary trading the more sensible direction. 7d-2 measured B1 relative to other fills (MM view). A directional trader needs the absolute move after the read to beat the spread and fees.
 - **Rule:** each B1 / B2 read is an event at the end of its 15 s bar (when known). The mid's move in its direction 10, 30, 60, 120, 300 s later, in cents; mean over events, 95 % interval from 5 min blocks resampled within days; share of events beating a taker's round trip. Baselines: every 15 s bar's direction (momentum) and its opposite (fade). Whole day and B1/B2 by session.
 - **Cost:** a taker pays half the spread in and out (median half spread from the naive fills at the touch) plus about 0.3 c take fee each way: about 1.6 c if the spread is 1 c.
 - **Descriptive, no primary test** (60 supporting cells; a handful will look real by chance).
@@ -362,7 +362,7 @@ Per day (b1_open): +121, −202, +31, +27, −86, **−461** (7 Jul), +115, +300
 Where the event study's +18 c went:
 - **The traded signals moved less:** +8.9 c mean (median +16) mid to mid in 2 min. One position at a time trades the first read of each cluster; the event study counted every read, and the later ones in a cluster (the price poking again and again) moved more.
 - **The open is expensive:** entry 3.5 c worse than the mid at the signal (latency, a wide opening spread, the sweep), about the same on exit, plus 0.6 c fees: **about 7 c a round trip**, not the 1.6-2.6 c the event study assumed (that spread came from the whole day's fills).
-- **The open is wild:** single trades of ±$1-2.40 a share in 2 minutes (worst: 3 Mar 09:36, −$2.40; 7 Jul three of the worst six). With 96 trades the interval is ±11 c around +1.4.
+- **The open is highly volatile:** single trades of ±$1-2.40 a share in 2 minutes (worst: 3 Mar 09:36, −$2.40; 7 Jul three of the worst six). With 96 trades the interval is ±11 c around +1.4.
 - **Latency doesn't matter** (1 ms ≈ 100 ms), as expected: the edge, if any, is minutes long.
 - **Expectations wrong:** I expected +8 to +15 c net and 7-9 days positive; it is +1.4 c (median +7.4), 7 days, and not distinguishable from 0. Right about latency and roughly about the trade count (9.6 a day).
 - **Conclusion for the founder's question, so far:** neither use of price action shows an edge we can tell from zero on these 10 days. In the MM, B1 separates fills by a fraction of a cent at 1-10 s (7d-2); as a taker at the open the move is there in mid terms but the open's cost and volatility swallow it. Not "negative", but not yet anything.
@@ -428,5 +428,5 @@ Written 26 Nov 2026, **before** the hold-out data was bought (founder's yes for 
 
 ## Ideas to try later (not run yet)
 
-- ADX as a second trend-strength measure next to ER (founder, 24 Nov 2026: "denemekten zarar gelmez"). Same place as ER: C++ indicator per timeframe, a column per fill, then the signal study. Compare ER vs ADX on the same days.
+- ADX as a second trend-strength measure next to ER (founder, 24 Nov 2026: worth trying). Same place as ER: C++ indicator per timeframe, a column per fill, then the signal study. Compare ER vs ADX on the same days.
 - A setup library across common stocks (founder, 25 Nov 2026): a bot with case-specific edges by timeframe and daily price action (opening fakeouts and the like). Each setup = detector + event study + taker backtest + hold-out, with its own entry in the test budget; replication across symbols as the honest check.
